@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 import os
-import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
 
 from chaddr.address import AddressSet, is_ipv4, is_ipv6
+from chaddr.profile_lexer import (
+    ArgRule,
+    META_STARTER,
+    TokenKind,
+    arg_rule,
+    canonical_ws_tokens,
+    lex_line,
+    logical_lines,
+    parse_arg,
+    tokenize_profile,
+)
 from chaddr.types import get_handler_class
 
 try:
@@ -24,25 +34,6 @@ _active_profile_dir: Path | None = None
 
 STARTER_FROM = "from"
 STARTER_TYPE = "type"
-
-
-def _logical_profile_lines(text: str) -> list[str]:
-    """Join physical lines that end with \\ (shell-style continuation)."""
-    logical: list[str] = []
-    buf = ""
-    for raw in text.splitlines():
-        line = raw.rstrip()
-        if line.endswith("\\"):
-            buf += line[:-1]
-            continue
-        if buf:
-            logical.append(buf + line)
-            buf = ""
-        else:
-            logical.append(line)
-    if buf:
-        logical.append(buf)
-    return logical
 
 
 def display_profile_path(path: Path) -> str:
@@ -120,9 +111,9 @@ class ProfileHeader:
 
 
 def addr_history_to_sets(raw: str) -> list[AddressSet]:
-    """Parse comma-separated historical addresses (IPv4/IPv6 auto-detected)."""
+    """Parse whitespace-separated historical addresses (IPv4/IPv6 auto-detected)."""
     sets: list[AddressSet] = []
-    for part in raw.split(","):
+    for part in raw.split():
         ip = part.strip()
         if not ip:
             continue
@@ -270,23 +261,18 @@ def _parse_profile(
     current_entry: ProfileEntry | None = None
     pending_options: list[str] = []
 
-    for raw_line in _logical_profile_lines(text):
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            opt_match = re.match(r"^#\s*option\s+(.+)$", line)
-            if opt_match:
-                token = opt_match.group(1).strip()
-                if current_entry is None and current_from is None and current_header is None:
-                    global_options.append(token.split()[0])
-                pending_options.append(token)
+    for token in tokenize_profile(text):
+        if token.kind == TokenKind.OPTION:
+            option = token.option or ""
+            if current_entry is None and current_from is None and current_header is None:
+                global_options.append(option.split()[0])
+            pending_options.append(option)
+            continue
+        if token.kind != TokenKind.ATTR or token.name is None:
             continue
 
-        if ":" not in line:
-            continue
-
-        key, value = line.split(":", 1)
-        key = key.strip().lower()
-        value = value.strip()
+        key = token.name
+        value = token.arg or ""
 
         if key == STARTER_FROM:
             if current_entry is not None:
@@ -343,18 +329,21 @@ def update_profile_entry_option(
         return False
 
     lines = profile_path.read_text(encoding="utf-8").splitlines()
-    wanted = entry_type.strip().lower()
+    wanted = canonical_ws_tokens(entry_type).lower()
     blocks: list[tuple[int, int, str]] = []
     index = 0
     while index < len(lines):
-        stripped = lines[index].strip()
-        if stripped.lower().startswith("type:"):
-            block_type = stripped.split(":", 1)[1].strip().lower()
+        token = lex_line(lines[index], index + 1)
+        if token and token.kind == TokenKind.ATTR and token.name == "type":
+            block_type = parse_arg(
+                token.raw_arg or "",
+                arg_rule(META_STARTER, "type"),
+            ).lower()
             start = index
             index += 1
             while index < len(lines):
-                nxt = lines[index].strip()
-                if nxt.lower().startswith("type:") or nxt.lower().startswith("from:"):
+                nxt = lex_line(lines[index], index + 1)
+                if nxt and nxt.kind == TokenKind.ATTR and nxt.name in ("type", "from"):
                     break
                 index += 1
             blocks.append((start, index, block_type))
@@ -371,11 +360,10 @@ def update_profile_entry_option(
 
         key_lower = key.strip().lower()
         for line_no in range(start + 1, end):
-            stripped = lines[line_no].strip()
-            if not stripped or stripped.startswith("#") or ":" not in stripped:
+            token = lex_line(lines[line_no], line_no + 1)
+            if token is None or token.kind != TokenKind.ATTR or token.name is None:
                 continue
-            line_key = stripped.split(":", 1)[0].strip().lower()
-            if line_key == key_lower:
+            if token.name == key_lower:
                 prefix = lines[line_no].split(":", 1)[0]
                 lines[line_no] = f"{prefix}: {value}"
                 profile_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")

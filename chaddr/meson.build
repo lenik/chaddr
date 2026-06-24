@@ -10,6 +10,7 @@ chaddr_py_sources = files(
   'orchestrator.py',
   'privilege.py',
   'profile.py',
+  'profile_lexer.py',
   'proxy.py',
   'public_ip.py',
   'gui/__init__.py',
