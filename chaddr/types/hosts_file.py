@@ -259,10 +259,18 @@ class HostsFileHandler(AddressTypeHandler):
         path = self._path()
         lines = self._read_lines()
         changed = False
+        match_count = 0
         new_lines: list[str] = []
         hosts_field = self.config.get("host") or self.config.get("hosts")
         hosts = [h.strip() for h in hosts_field.split(",")] if hosts_field else None
-        old_candidates = set(self._old_ip_candidates(old_ip))
+        old_candidates = set(self._old_ip_candidates(old_ip, self._apply_match_spare()))
+        self.logger.info(
+            "hosts file %s: matching old %s, candidates [%s], host filter %s",
+            path,
+            old_ip,
+            ", ".join(sorted(old_candidates)),
+            ", ".join(hosts) if hosts else "(any)",
+        )
 
         for line in lines:
             stripped = line.strip()
@@ -283,12 +291,14 @@ class HostsFileHandler(AddressTypeHandler):
                     parts[0] = new_ip
                     new_lines.append("\t".join(parts) if "\t" in line else " ".join(parts))
                     changed = True
+                    match_count += 1
                     continue
             if parts[0] in old_candidates:
                 parts[0] = new_ip
                 new_line = "\t".join(parts) if "\t" in line else " ".join(parts)
                 new_lines.append(new_line)
                 changed = True
+                match_count += 1
             else:
                 new_lines.append(line)
 
@@ -302,4 +312,5 @@ class HostsFileHandler(AddressTypeHandler):
             "\n".join(new_lines) + ("\n" if new_lines else ""),
             encoding="utf-8",
         )
+        self.logger.info("Updated %s: %d line(s) %s -> %s", path, match_count, old_ip, new_ip)
         return True

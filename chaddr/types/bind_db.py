@@ -186,10 +186,19 @@ class BindDbHandler(AddressTypeHandler):
         path = self._path()
         lines = self._read_lines()
         changed = False
+        match_count = 0
         new_lines: list[str] = []
         record_field = self.config.get("record") or self.config.get("name")
         record_names = [n.strip() for n in record_field.split(",")] if record_field else None
-        old_candidates = set(self._old_ip_candidates(old_ip))
+        old_candidates = set(self._old_ip_candidates(old_ip, self._apply_match_spare()))
+        self.logger.info(
+            "zone file %s: replace %s -> %s, candidates [%s], record filter %s",
+            path,
+            old_ip,
+            new_ip,
+            ", ".join(sorted(old_candidates)),
+            ", ".join(record_names) if record_names else "(any)",
+        )
 
         for line in lines:
             stripped = line.strip()
@@ -202,6 +211,7 @@ class BindDbHandler(AddressTypeHandler):
                     new_line = self._replace_a_record_ip(line, parts, new_ip)
                     if new_line != line:
                         changed = True
+                        match_count += 1
                     new_lines.append(new_line)
                     continue
             new_line = line
@@ -212,6 +222,7 @@ class BindDbHandler(AddressTypeHandler):
                     line_changed = True
             if line_changed:
                 changed = True
+                match_count += 1
                 new_lines.append(new_line)
             else:
                 new_lines.append(line)
@@ -226,4 +237,5 @@ class BindDbHandler(AddressTypeHandler):
             "\n".join(new_lines) + ("\n" if new_lines else ""),
             encoding="utf-8",
         )
+        self.logger.info("Updated %s: %d line(s) %s -> %s", path, match_count, old_ip, new_ip)
         return True

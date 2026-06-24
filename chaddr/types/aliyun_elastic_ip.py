@@ -177,26 +177,36 @@ class AliyunElasticIpHandler(AddressTypeHandler):
         self._request("ConvertNatPublicIpToEip", {"InstanceId": instance_id}, region=region)
         self.logger.info("Converted NAT public IP %s on %s to Elastic IP", public_ip, instance_id)
 
+    def _primary_from_instance(self, instance: dict, region: str) -> dict | None:
+        pub = self._instance_public_ipv4(instance)
+        private_ips = instance.get("VpcAttributes", {}).get("PrivateIpAddress", {}).get("IpAddress", [])
+        if isinstance(private_ips, str):
+            private_ips = [private_ips]
+        if pub and private_ips and is_ipv4(pub):
+            return {
+                "instance_id": instance["InstanceId"],
+                "public_ip": pub,
+                "region": region,
+            }
+        return None
+
     def _find_primary_instance(self, *, region: str | None = None) -> dict | None:
+        region = region or self._resolve_region()
         instance_id = self.config.get("instance") or self.config.get("instance_id")
+        if instance_id:
+            instance = self._get_instance_detail(instance_id, region=region)
+            if instance is None:
+                return None
+            return self._primary_from_instance(instance, region)
+
         payload = self._request("DescribeInstances", {"Status": "Running", "PageSize": "50"}, region=region)
         instances = payload.get("Instances", {}).get("Instance", [])
-        if instance_id:
-            for instance in instances:
-                if instance.get("InstanceId") == instance_id:
-                    instances = [instance]
-                    break
+        if isinstance(instances, dict):
+            instances = [instances]
         for instance in instances:
-            public_ips = instance.get("PublicIpAddress", {}).get("IpAddress", [])
-            eip = instance.get("EipAddress", {}) or {}
-            pub = eip.get("IpAddress") or (public_ips[0] if public_ips else None)
-            private_ips = instance.get("VpcAttributes", {}).get("PrivateIpAddress", {}).get("IpAddress", [])
-            if pub and private_ips and is_ipv4(pub):
-                return {
-                    "instance_id": instance["InstanceId"],
-                    "public_ip": pub,
-                    "region": region or self._resolve_region(),
-                }
+            found = self._primary_from_instance(instance, region)
+            if found:
+                return found
         return None
 
     def _discover_region(self) -> str | None:

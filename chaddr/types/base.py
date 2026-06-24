@@ -106,13 +106,32 @@ class AddressTypeHandler(ABC):
         raise NotImplementedError(f"{self.type_name} does not support manual edit")
 
     def apply_address_map(self, old: AddressSet, new: AddressSet) -> bool:
+        target = self.config.get("path") or self.config.get("zone") or self.config.get("host") or ""
+        where = f" ({target})" if target else ""
+        self.logger.info("[%s] apply%s: %s -> %s", self.type_name, where, old.format(), new.format())
         changed = False
-        if old.ipv4 and new.ipv4 and old.ipv4 != new.ipv4:
-            if self.apply_manual(old.ipv4, new.ipv4):
+        if old.ipv4 and new.ipv4:
+            if old.ipv4 == new.ipv4:
+                self.logger.info("[%s] skip IPv4: already %s", self.type_name, old.ipv4)
+            elif self.apply_manual(old.ipv4, new.ipv4):
+                self.logger.info("[%s] IPv4 updated: %s -> %s", self.type_name, old.ipv4, new.ipv4)
                 changed = True
-        if old.ipv6 and new.ipv6 and old.ipv6 != new.ipv6:
-            if self.apply_manual(old.ipv6, new.ipv6):
+            else:
+                self.logger.warning("[%s] IPv4 unchanged: no match for %s", self.type_name, old.ipv4)
+        elif new.ipv4 and not old.ipv4:
+            self.logger.warning("[%s] skip IPv4: no old IPv4 in apply map (new=%s)", self.type_name, new.ipv4)
+        if old.ipv6 and new.ipv6:
+            if old.ipv6 == new.ipv6:
+                self.logger.info("[%s] skip IPv6: already %s", self.type_name, old.ipv6)
+            elif self.apply_manual(old.ipv6, new.ipv6):
+                self.logger.info("[%s] IPv6 updated: %s -> %s", self.type_name, old.ipv6, new.ipv6)
                 changed = True
+            else:
+                self.logger.warning("[%s] IPv6 unchanged: no match for %s", self.type_name, old.ipv6)
+        elif new.ipv6 and not old.ipv6:
+            self.logger.warning("[%s] skip IPv6: no old IPv6 in apply map (new=%s)", self.type_name, new.ipv6)
+        if not changed:
+            self.logger.warning("[%s] no changes written", self.type_name)
         return changed
 
     def reallocate(self) -> ReallocateResult:

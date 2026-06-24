@@ -9,6 +9,7 @@ from chaddr.types.aliyun_elastic_ip import AliyunElasticIpHandler
 from chaddr.types.registered_nameserver import RegisteredNameserverHandler
 from chaddr.types.hosts_file import HostsFileHandler
 from chaddr.types.bind_db import BindDbHandler
+from chaddr.types.plain_file import PlainFileHandler
 
 HANDLERS: dict[str, type[AddressTypeHandler]] = {
     "aws elastic ip": AwsElasticIpHandler,
@@ -17,6 +18,7 @@ HANDLERS: dict[str, type[AddressTypeHandler]] = {
     "hosts file": HostsFileHandler,
     "zone file": BindDbHandler,
     "bind db": BindDbHandler,
+    "file": PlainFileHandler,
 }
 
 

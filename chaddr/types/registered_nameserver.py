@@ -8,7 +8,7 @@ import requests
 
 from chaddr.namecheap_portal import ensure_client_ip_whitelisted, is_portal_whitelist_enabled
 from chaddr.proxy import requests_proxies
-from chaddr.types.base import AddressTypeHandler, DiagnoseItem, DiagnoseResult, is_ipv4
+from chaddr.types.base import AddressTypeHandler, DiagnoseItem, DiagnoseResult, AddressSet, is_ipv4
 
 
 class RegisteredNameserverHandler(AddressTypeHandler):
@@ -250,6 +250,32 @@ class RegisteredNameserverHandler(AddressTypeHandler):
         ok = all(item.ok for item in items)
         return DiagnoseResult(self.type_name, "ready" if ok else "issues found", ok, items, unique)
 
+    def apply_address_map(self, old: AddressSet, new: AddressSet) -> bool:
+        """Update configured glue NS to *new* IPv4; ignore profile old-address map."""
+        if not new.ipv4:
+            self.logger.warning("[%s] skip: no new IPv4 selected", self.type_name)
+            return False
+        ns_hosts = self._ns_hosts()
+        if not ns_hosts:
+            self.logger.warning("[%s] skip: no nameservers configured", self.type_name)
+            return False
+        self.logger.info(
+            "[%s] apply nameservers %s -> %s",
+            self.type_name,
+            ", ".join(ns_hosts),
+            new.ipv4,
+        )
+        if not old.is_empty():
+            self.logger.info(
+                "[%s] profile old map %s not used for NS update (names are authoritative)",
+                self.type_name,
+                old.format(),
+            )
+        changed = self.apply_manual("", new.ipv4)
+        if not changed:
+            self.logger.info("[%s] all nameservers already at %s", self.type_name, new.ipv4)
+        return changed
+
     def apply_manual(self, old_ip: str, new_ip: str) -> bool:
         if not is_ipv4(new_ip):
             raise ValueError(f"invalid IPv4: {new_ip}")
@@ -259,6 +285,11 @@ class RegisteredNameserverHandler(AddressTypeHandler):
             raise RuntimeError(f"unsupported api: {api}")
 
         mapping = self._get_namecheap_ips()
+        self.logger.info(
+            "Namecheap nameservers %s: current mapping %s",
+            ", ".join(self._ns_hosts()),
+            ", ".join(f"{host}={mapping.get(host, '(none)')}" for host in self._ns_hosts()),
+        )
         changed = False
         for host in self._ns_hosts():
             current = mapping.get(host)
