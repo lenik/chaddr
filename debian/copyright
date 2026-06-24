@@ -3,7 +3,7 @@ Upstream-Name: chaddr
 Source: https://github.com/lenik/chaddr
 
 Files: *
-Copyright: 2026 Lenik <zephyr@bodz.net>
+Copyright: 2026 Lenik <chaddr@bodz.net>
 License: AGPL-3+
  This program is free software: you can redistribute it and/or modify
  it under the terms of the GNU Affero General Public License as published by

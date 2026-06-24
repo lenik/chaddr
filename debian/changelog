@@ -1,3 +1,36 @@
+chaddr (1.0.1) testing; urgency=medium
+
+  * CLI: rename --refetch to --renew; pass addr-history and spare sets through
+    CLI renew like the GUI
+  * Profiles: add profile_lexer with context-sensitive NAME ':' ARG* parsing
+    (default bash-like shell words with quotes and escapes; COMMA_LIST for ns,
+    host/hosts, and record/name attributes)
+  * Profiles: addr-history parsed as whitespace-separated addresses (not commas)
+  * Resource type: rename bind db to zone file (bind db remains a legacy alias)
+  * AWS Elastic IP renew: list all EIPs in the region and release every address
+    matching the current candidate set instead of failing when DescribeAddresses
+    returns NotFound for a NAT/public IP
+  * Aliyun Elastic IP renew: convert VPC NAT public IPs with
+    ConvertNatPublicIpToEip before release; list/unassociate/release candidate
+    EIPs; wait for Available status; surface Aliyun Code/Message on API errors
+  * Zone file and hosts file apply/renew: match and replace all spare/old IP
+    candidates (addr-history, resolve, --old-ip), not only the primary address
+  * Handlers: profile-scoped spare snapshot for Apply preview separate from
+    diagnose accumulation; orchestrator sets source addresses during renew
+  * GUI: spare for diagnose/renew/apply comes from each profile file only, not
+    from multi-selection or the Current addresses panel; multi-select runs
+    concurrent independent operations
+  * GUI: nested notebook placeholder pages to avoid GTK empty-tab assertions;
+    BitmapButton and minimum-size flags for toolbar buttons on GTK
+  * GUI: fix AddressEditFrame methods accidentally nested after a module helper;
+    per-profile log/diagnostic tabs; reduce wxStyledTextCtrl focus churn
+  * GUI: zone file diagnose labels and Apply preview with > prefix lines
+  * address.py: spare_sets_from_entries ignores non-spare entries
+  * Documentation and packaging: update README, man pages, bash completion,
+    profile/example, and .gitignore for chaddr build artifacts
+
+ -- Lenik (谢继雷) <lenik@bodz.net>  Wed, 25 Jun 2026 22:00:00 +0800
+
 chaddr (1.0.0) testing; urgency=medium
 
   * Initial public release under AGPL-3.0-or-later (see LICENSE for supplemental
@@ -5,7 +38,7 @@ chaddr (1.0.0) testing; urgency=medium
   * CLI: --diagnose, --refetch, and manual --apply/--old-ip for scripting
   * Profiles: declarative multi-resource definitions under
     ~/.config/chaddr/profile/ (override with CHADDR_PROFILE_DIR)
-  * Profile header fields: description, version, and addr-history (comma-
+  * Profile header fields: description, version, and addr-history (whitespace-
     separated historical IPv4/IPv6, equivalent to --old-ip for hosts/BIND
     matching)
   * Profile syntax: shell-style line continuation with trailing backslash
@@ -27,4 +60,4 @@ chaddr (1.0.0) testing; urgency=medium
   * Debian packaging: /usr/bin/chaddr, man pages, bash completion, example
     profiles under /usr/share/chaddr/profile/
 
- -- Lenik (谢继雷) <lenik@bodz.net>  Wed, 25 Jun 2026 12:00:00 +0000
+ -- Lenik (谢继雷) <lenik@bodz.net>  Wed, 24 Jun 2026 19:49:42 +0800
