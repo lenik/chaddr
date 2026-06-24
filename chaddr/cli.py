@@ -52,7 +52,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Proxy URL, e.g. socks5://127.0.0.1:1080 or http://127.0.0.1:8080",
     )
     parser.add_argument("--diagnose", action="store_true", help="Run diagnosis only (CLI mode)")
-    parser.add_argument("--refetch", action="store_true", help="Reallocate elastic IP and propagate (CLI mode)")
+    parser.add_argument("--renew", action="store_true", help="Reallocate elastic IP and propagate (CLI mode)")
     parser.add_argument("--apply", metavar="IP", help="Manually apply IPv4/IPv6 to profile (CLI mode)")
     parser.add_argument("--apply-ipv4", metavar="IP", help="New IPv4 for manual apply")
     parser.add_argument("--apply-ipv6", metavar="IP", help="New IPv6 for manual apply")
@@ -92,7 +92,7 @@ def _run_cli(
     proxy: str | None,
     logger: logging.Logger,
     diagnose: bool,
-    refetch: bool,
+    renew: bool,
     apply_ip: str | None,
     apply_ipv4: str | None,
     apply_ipv6: str | None,
@@ -121,8 +121,15 @@ def _run_cli(
                         print(f"        -> {item.guidance}")
             if not result.ok:
                 exit_code = 1
-        elif refetch:
-            result = reallocate_profile(profile, None, cli_options, proxy, logger)
+        elif renew:
+            result = reallocate_profile(
+                profile,
+                None,
+                cli_options,
+                proxy,
+                logger,
+                spare_from_sets=spare_extra,
+            )
             if result.ok:
                 logger.info("Profile %s: %s", name, result.message)
             else:
@@ -151,7 +158,7 @@ def _run_cli(
                 logger.error("Profile %s: %s", name, result.message)
                 exit_code = 1
         else:
-            logger.error("No CLI action specified; use --diagnose, --refetch, or --apply")
+            logger.error("No CLI action specified; use --diagnose, --renew, or --apply")
             return 2
     return exit_code
 
@@ -190,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         cli_mode = (
             args.no_gui
             or args.diagnose
-            or args.refetch
+            or args.renew
             or args.apply is not None
             or args.apply_ipv4
             or args.apply_ipv6
@@ -209,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
                 proxy,
                 logger,
                 args.diagnose,
-                args.refetch,
+                args.renew,
                 args.apply,
                 args.apply_ipv4,
                 args.apply_ipv6,
