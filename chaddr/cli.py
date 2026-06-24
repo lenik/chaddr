@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
+import sys
+
+if sys.platform.startswith("linux") and "GTK_A11Y" not in os.environ:
+    os.environ["GTK_A11Y"] = "none"
 
 from chaddr.address import AddressSet, is_ipv4, parse_address_set
 from chaddr.config import load_config, resolve_client_ip
 from chaddr.gui.app import run_gui
 from chaddr.orchestrator import apply_address_profile, diagnose_profile, reallocate_profile
-from chaddr.profile import Profile, ensure_profile_dir, list_profiles, load_profile
+from chaddr.profile import Profile, ensure_profile_dir, list_profiles, list_profile_candidate_addresses, load_profile
 from chaddr.proxy import apply_proxy_env, log_proxy_hint, restore_proxy_env
 
 
@@ -52,6 +57,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Proxy URL, e.g. socks5://127.0.0.1:1080 or http://127.0.0.1:8080",
     )
     parser.add_argument("--diagnose", action="store_true", help="Run diagnosis only (CLI mode)")
+    parser.add_argument(
+        "-A",
+        "--addresses",
+        action="store_true",
+        help="List all candidate addresses for profile(s) (CLI mode)",
+    )
     parser.add_argument("--renew", action="store_true", help="Reallocate elastic IP and propagate (CLI mode)")
     parser.add_argument("--apply", metavar="IP", help="Manually apply IPv4/IPv6 to profile (CLI mode)")
     parser.add_argument("--apply-ipv4", metavar="IP", help="New IPv4 for manual apply")
@@ -92,6 +103,7 @@ def _run_cli(
     proxy: str | None,
     logger: logging.Logger,
     diagnose: bool,
+    addresses: bool,
     renew: bool,
     apply_ip: str | None,
     apply_ipv4: str | None,
@@ -101,6 +113,10 @@ def _run_cli(
     exit_code = 0
     for name in profiles:
         profile = load_profile(name)
+        if addresses:
+            for entry in list_profile_candidate_addresses(profile, cli_options, proxy, logger):
+                print(entry.display())
+            continue
         spare_extra = _spare_from_sets_for_profile(profile, old_ip)
         if diagnose:
             result = diagnose_profile(
@@ -197,6 +213,7 @@ def main(argv: list[str] | None = None) -> int:
         cli_mode = (
             args.no_gui
             or args.diagnose
+            or args.addresses
             or args.renew
             or args.apply is not None
             or args.apply_ipv4
@@ -216,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
                 proxy,
                 logger,
                 args.diagnose,
+                args.addresses,
                 args.renew,
                 args.apply,
                 args.apply_ipv4,
