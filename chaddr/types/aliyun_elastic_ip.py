@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -98,11 +100,82 @@ class AliyunElasticIpHandler(AddressTypeHandler):
         params["Signature"] = self._sign(params, secret_key)
         url = f"https://ecs.{region}.aliyuncs.com"
         response = requests.get(url, params=params, timeout=60, proxies=requests_proxies(self.proxy))
-        response.raise_for_status()
-        payload = response.json()
-        if "Code" in payload:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict) and payload.get("Code"):
             raise RuntimeError(f"{payload.get('Code')}: {payload.get('Message', 'Aliyun API error')}")
+        response.raise_for_status()
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"Aliyun API returned non-JSON response for {action}")
         return payload
+
+    def _get_instance_detail(self, instance_id: str, *, region: str) -> dict | None:
+        payload = self._request(
+            "DescribeInstances",
+            {"InstanceIds": json.dumps([instance_id])},
+            region=region,
+        )
+        instances = payload.get("Instances", {}).get("Instance", [])
+        if isinstance(instances, dict):
+            return instances if instances.get("InstanceId") == instance_id else None
+        for instance in instances:
+            if instance.get("InstanceId") == instance_id:
+                return instance
+        return None
+
+    @staticmethod
+    def _instance_public_ipv4(instance: dict) -> str | None:
+        eip = instance.get("EipAddress") or {}
+        eip_ip = eip.get("IpAddress")
+        if is_ipv4(eip_ip):
+            return eip_ip
+        public_ips = instance.get("PublicIpAddress", {}).get("IpAddress", []) or []
+        if isinstance(public_ips, str):
+            public_ips = [public_ips]
+        for ip in public_ips:
+            if is_ipv4(ip):
+                return ip
+        return None
+
+    def _collect_instance_address_candidates(self, instance_id: str, *, region: str) -> set[str]:
+        candidates: set[str] = set()
+        instance = self._get_instance_detail(instance_id, region=region)
+        if instance is None:
+            return candidates
+        ip = self._instance_public_ipv4(instance)
+        if ip:
+            candidates.add(ip)
+        eip = instance.get("EipAddress") or {}
+        eip_ip = eip.get("IpAddress")
+        if is_ipv4(eip_ip):
+            candidates.add(eip_ip)
+        public_ips = instance.get("PublicIpAddress", {}).get("IpAddress", []) or []
+        if isinstance(public_ips, str):
+            public_ips = [public_ips]
+        for item in public_ips:
+            if is_ipv4(item):
+                candidates.add(item)
+        return candidates
+
+    def _prepare_instance_public_ip(self, instance_id: str, *, region: str) -> None:
+        """Convert VPC NAT public IP to EIP when needed so it can be released/rebound."""
+        instance = self._get_instance_detail(instance_id, region=region)
+        if instance is None:
+            return
+        eip = instance.get("EipAddress") or {}
+        if eip.get("AllocationId") and eip.get("IpAddress"):
+            return
+        public_ips = instance.get("PublicIpAddress", {}).get("IpAddress", []) or []
+        if isinstance(public_ips, str):
+            public_ips = [public_ips]
+        if not public_ips:
+            return
+        public_ip = public_ips[0]
+        self.report_progress(0.05, f"Converting NAT public IP {public_ip} to Elastic IP")
+        self._request("ConvertNatPublicIpToEip", {"InstanceId": instance_id}, region=region)
+        self.logger.info("Converted NAT public IP %s on %s to Elastic IP", public_ip, instance_id)
 
     def _find_primary_instance(self, *, region: str | None = None) -> dict | None:
         instance_id = self.config.get("instance") or self.config.get("instance_id")
@@ -233,6 +306,117 @@ class AliyunElasticIpHandler(AddressTypeHandler):
         ok = all(item.ok for item in items)
         return DiagnoseResult(self.type_name, "ready" if ok else "issues found", ok, items, addresses)
 
+    def _effective_spare(self):
+        from chaddr.address import SpareFromAddresses
+
+        if self._spare_from_addresses and not self._spare_from_addresses.is_empty():
+            return self._spare_from_addresses
+        if self._source_addresses and not self._source_addresses.is_empty():
+            return SpareFromAddresses.from_address_sets(self._source_addresses)
+        return SpareFromAddresses()
+
+    def _reallocate_release_candidates(self, instance_public_ip: str) -> set[str]:
+        candidates: set[str] = set()
+        if is_ipv4(instance_public_ip):
+            candidates.add(instance_public_ip)
+        for ip in self._effective_spare().ipv4:
+            if is_ipv4(ip):
+                candidates.add(ip)
+        return candidates
+
+    @staticmethod
+    def _eip_records(payload: dict) -> list[dict]:
+        eips = payload.get("EipAddresses", {}).get("EipAddress", [])
+        if not eips:
+            return []
+        if isinstance(eips, dict):
+            return [eips]
+        return list(eips)
+
+    def _list_elastic_ips(self, *, region: str) -> list[dict]:
+        payload = self._request(
+            "DescribeEipAddresses",
+            {"PageSize": "100", "PageNumber": "1"},
+            region=region,
+        )
+        return self._eip_records(payload)
+
+    def _wait_eip_available(self, allocation_id: str, *, region: str, timeout: float = 30.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            for eip in self._list_elastic_ips(region=region):
+                if eip.get("AllocationId") != allocation_id:
+                    continue
+                if (eip.get("Status") or "").lower() == "available":
+                    return True
+                break
+            time.sleep(1)
+        return False
+
+    def _release_owned_elastic_ips(self, candidates: set[str], *, region: str) -> int:
+        self.report_progress(0.08, "Listing Elastic IPs in region")
+        all_eips = self._list_elastic_ips(region=region)
+        matching = [
+            item
+            for item in all_eips
+            if item.get("IpAddress") in candidates or item.get("EipAddress") in candidates
+        ]
+        if not matching:
+            self.logger.info(
+                "No owned Elastic IPs match %d candidate address(es): %s",
+                len(candidates),
+                ", ".join(sorted(candidates)) or "(none)",
+            )
+            return 0
+
+        released = 0
+        total = len(matching)
+        for index, eip in enumerate(matching):
+            public_ip = eip.get("IpAddress") or eip.get("EipAddress") or ""
+            allocation_id = eip.get("AllocationId")
+            if not allocation_id:
+                continue
+            fraction = 0.1 + 0.4 * (index / max(total, 1))
+
+            status = (eip.get("Status") or "").lower()
+            bound_instance = eip.get("InstanceId") or ""
+            if status == "inuse" or bound_instance:
+                self.report_progress(fraction, f"Unassociating Elastic IP {public_ip}")
+                try:
+                    params: dict[str, str] = {"AllocationId": allocation_id}
+                    if bound_instance:
+                        params["InstanceId"] = bound_instance
+                    self._request(
+                        "UnassociateEipAddress",
+                        params,
+                        region=region,
+                    )
+                except Exception as exc:
+                    self.logger.warning("Unassociate %s failed: %s", public_ip, exc)
+                    continue
+                if not self._wait_eip_available(allocation_id, region=region):
+                    self.logger.warning(
+                        "Elastic IP %s did not become Available after unassociate; skipping release",
+                        public_ip,
+                    )
+                    continue
+
+            self.report_progress(
+                min(fraction + 0.05, 0.49),
+                f"Releasing Elastic IP {public_ip} ({allocation_id})",
+            )
+            try:
+                self._request(
+                    "ReleaseEipAddress",
+                    {"AllocationId": allocation_id},
+                    region=region,
+                )
+                released += 1
+                self.logger.info("Released Elastic IP %s (%s)", public_ip, allocation_id)
+            except Exception as exc:
+                self.logger.warning("Release %s failed: %s", public_ip, exc)
+        return released
+
     def reallocate(self) -> ReallocateResult:
         region = self._ensure_region()
         if not region:
@@ -245,32 +429,31 @@ class AliyunElasticIpHandler(AddressTypeHandler):
         old_ip = instance["public_ip"]
         instance_id = instance["instance_id"]
 
-        self.report_progress(0.15, f"Looking up Elastic IP allocation for {old_ip}")
-        eip_payload = self._request("DescribeEipAddresses", {"EipAddress": old_ip}, region=region)
-        eips = eip_payload.get("EipAddresses", {}).get("EipAddress", [])
-        if not eips:
-            return ReallocateResult(False, old_ip=old_ip, message=f"Elastic IP {old_ip} not found")
+        self._prepare_instance_public_ip(instance_id, region=region)
 
-        allocation_id = eips[0].get("AllocationId")
-
-        self.report_progress(0.35, f"Unassociating Elastic IP {old_ip}")
-        self._request(
-            "UnassociateEipAddress",
-            {"AllocationId": allocation_id, "InstanceId": instance_id},
-            region=region,
+        candidates = self._reallocate_release_candidates(old_ip)
+        candidates.update(self._collect_instance_address_candidates(instance_id, region=region))
+        self.logger.info(
+            "Reallocate release candidates: %s",
+            ", ".join(sorted(candidates)) or "(none)",
         )
+        released = self._release_owned_elastic_ips(candidates, region=region)
+        if released:
+            self.report_progress(0.5, f"Released {released} Elastic IP(s)")
+        else:
+            self.report_progress(
+                0.2,
+                "No owned Elastic IPs to release among current address candidates; allocating new address",
+            )
 
-        self.report_progress(0.55, f"Releasing Elastic IP {old_ip}")
-        self._request("ReleaseEipAddress", {"AllocationId": allocation_id}, region=region)
-
-        self.report_progress(0.75, f"Allocating new Elastic IP in {region}")
+        self.report_progress(0.6, f"Allocating new Elastic IP in {region}")
         alloc = self._request("AllocateEipAddress", {"Bandwidth": "5"}, region=region)
         new_ip = alloc.get("EipAddress")
         new_alloc = alloc.get("AllocationId")
         if not is_ipv4(new_ip):
             return ReallocateResult(False, old_ip=old_ip, message="AllocateEipAddress returned invalid IP")
 
-        self.report_progress(0.9, f"Associating {new_ip} with {instance_id}")
+        self.report_progress(0.85, f"Associating {new_ip} with {instance_id}")
         self._request(
             "AssociateEipAddress",
             {"AllocationId": new_alloc, "InstanceId": instance_id},
