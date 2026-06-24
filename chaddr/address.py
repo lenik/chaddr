@@ -62,33 +62,50 @@ class SpareFromAddresses:
         return cls(ipv4=ipv4, ipv6=ipv6)
 
 
+SPARE_SOURCES = frozenset({"old-ip", "history", "resolve", "instance"})
+PROFILE_AUTO_SOURCES = frozenset({"old-ip", "history", "resolve", "instance"})
+
+
 @dataclass
 class AddressEntry:
     family: str
     address: str
     source: str = "manual"
-    spare: bool = False
+    detail: str = ""
 
     def display(self) -> str:
+        if self.detail:
+            return f"{self.family}:{self.address} ({self.source}: {self.detail})"
         return f"{self.family}:{self.address} ({self.source})"
 
     @classmethod
     def from_old_ip(cls, old_ip: str) -> AddressEntry:
         family = "IPv4" if is_ipv4(old_ip) else "IPv6"
-        return cls(family, old_ip, "old-ip", spare=True)
+        return cls(family, old_ip, "old-ip")
 
     @classmethod
     def from_history_ip(cls, ip: str) -> AddressEntry:
         family = "IPv4" if is_ipv4(ip) else "IPv6"
-        return cls(family, ip, "addr-history", spare=True)
+        return cls(family, ip, "history")
 
     @classmethod
-    def from_address_set(cls, addresses: AddressSet, source: str = "resolve") -> list[AddressEntry]:
+    def from_instance_ip(cls, ip: str, instance_id: str = "") -> AddressEntry:
+        family = "IPv4" if is_ipv4(ip) else "IPv6"
+        return cls(family, ip, "instance", detail=instance_id.strip())
+
+    @classmethod
+    def from_address_set(
+        cls,
+        addresses: AddressSet,
+        source: str = "resolve",
+        *,
+        detail: str = "",
+    ) -> list[AddressEntry]:
         entries: list[AddressEntry] = []
         if addresses.ipv4:
-            entries.append(cls("IPv4", addresses.ipv4, source))
+            entries.append(cls("IPv4", addresses.ipv4, source, detail=detail))
         if addresses.ipv6:
-            entries.append(cls("IPv6", addresses.ipv6, source))
+            entries.append(cls("IPv6", addresses.ipv6, source, detail=detail))
         return entries
 
     @classmethod
@@ -103,30 +120,88 @@ class AddressEntry:
         if " (" not in rest or not rest.endswith(")"):
             return None
         address, source_part = rest.rsplit(" (", 1)
-        source = source_part[:-1]
+        source = source_part[:-1].strip()
         address = address.strip()
-        source = source.strip()
+        detail = ""
+        if source.startswith("instance:"):
+            detail = source[len("instance:") :].strip()
+            source = "instance"
         if not address or not source:
             return None
-        return cls(family, address, source)
+        return cls(family, address, source, detail=detail)
 
 
 def address_set_from_entries(entries: list[AddressEntry]) -> AddressSet:
-    ipv4 = next((entry.address for entry in entries if entry.family == "IPv4"), None)
-    ipv6 = next((entry.address for entry in entries if entry.family == "IPv6"), None)
+    """Build an address set; later entries win per family."""
+    ipv4: str | None = None
+    ipv6: str | None = None
+    for entry in entries:
+        if entry.family == "IPv4":
+            ipv4 = entry.address
+        elif entry.family == "IPv6":
+            ipv6 = entry.address
     return AddressSet(ipv4=ipv4, ipv6=ipv6)
+
+
+def address_set_from_selection(entries: list[AddressEntry], indices: list[int]) -> AddressSet:
+    """Build apply targets from list selection (at most one address per family)."""
+    if not indices:
+        raise ValueError("Select at least one address to apply.")
+    ipv4: list[str] = []
+    ipv6: list[str] = []
+    for index in indices:
+        if index < 0 or index >= len(entries):
+            continue
+        entry = entries[index]
+        if entry.family == "IPv4":
+            ipv4.append(entry.address)
+        elif entry.family == "IPv6":
+            ipv6.append(entry.address)
+    if len(ipv4) > 1:
+        raise ValueError("Select at most one IPv4 address.")
+    if len(ipv6) > 1:
+        raise ValueError("Select at most one IPv6 address.")
+    if not ipv4 and not ipv6:
+        raise ValueError("Select at least one address to apply.")
+    return AddressSet(ipv4=ipv4[0] if ipv4 else None, ipv6=ipv6[0] if ipv6 else None)
 
 
 def spare_sets_from_entries(entries: list[AddressEntry]) -> list[AddressSet]:
     sets: list[AddressSet] = []
     for entry in entries:
-        if not entry.spare:
+        if entry.source not in SPARE_SOURCES:
             continue
         if entry.family == "IPv4":
             sets.append(AddressSet(ipv4=entry.address))
         else:
             sets.append(AddressSet(ipv6=entry.address))
     return sets
+
+
+def merge_address_entries(
+    existing: list[AddressEntry],
+    incoming: list[AddressEntry],
+    *,
+    replace_sources: frozenset[str] | None = None,
+    distinct_sources: bool = False,
+) -> list[AddressEntry]:
+    """Merge address lists, optionally replacing entries from given sources."""
+    drop = replace_sources or frozenset()
+    kept = [entry for entry in existing if entry.source not in drop]
+
+    def entry_key(entry: AddressEntry) -> tuple[str, ...]:
+        if distinct_sources:
+            return (entry.family, entry.address, entry.source)
+        return (entry.family, entry.address)
+
+    known = {entry_key(entry) for entry in kept}
+    for entry in incoming:
+        key = entry_key(entry)
+        if key in known:
+            continue
+        kept.append(entry)
+        known.add(key)
+    return kept
 
 
 def is_ipv4(value: str | None) -> bool:

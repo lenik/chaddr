@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 from chaddr.address import AddressSet, is_ipv4, is_ipv6
 from chaddr.profile_lexer import (
@@ -122,6 +123,78 @@ def addr_history_to_sets(raw: str) -> list[AddressSet]:
         elif is_ipv6(ip):
             sets.append(AddressSet(ipv6=ip))
     return sets
+
+
+def _parse_addr_history_ips(raw: str) -> list[str]:
+    ips: list[str] = []
+    for part in raw.split():
+        ip = part.strip()
+        if ip and (is_ipv4(ip) or is_ipv6(ip)):
+            ips.append(ip)
+    return ips
+
+
+def _header_boundary_line(lines: list[str]) -> int:
+    for index, line in enumerate(lines):
+        token = lex_line(line, index + 1)
+        if token and token.kind == TokenKind.ATTR and token.name in ("from", "type"):
+            return index
+    return len(lines)
+
+
+def _addr_history_block_span(lines: list[str], header_end: int) -> tuple[int, int] | None:
+    for index in range(header_end):
+        token = lex_line(lines[index], index + 1)
+        if token and token.kind == TokenKind.ATTR and token.name == "addr-history":
+            end = index + 1
+            while end < header_end and lines[end - 1].rstrip().endswith("\\"):
+                end += 1
+            return index, end
+    return None
+
+
+def append_profile_addr_history(profile_path: Path, ips: list[str]) -> bool:
+    """Append unique IPs to profile header addr-history and save the file."""
+    new_ips: list[str] = []
+    for ip in ips:
+        value = ip.strip()
+        if value and (is_ipv4(value) or is_ipv6(value)) and value not in new_ips:
+            new_ips.append(value)
+    if not new_ips or not profile_path.is_file():
+        return False
+
+    lines = profile_path.read_text(encoding="utf-8").splitlines()
+    header_end = _header_boundary_line(lines)
+    span = _addr_history_block_span(lines, header_end)
+
+    existing: list[str] = []
+    if span is not None:
+        block = "\n".join(lines[span[0] : span[1]])
+        for logical in logical_lines(block):
+            token = lex_line(logical, span[0] + 1)
+            if token and token.kind == TokenKind.ATTR and token.name == "addr-history":
+                existing = _parse_addr_history_ips(token.raw_arg or "")
+                break
+
+    merged = list(existing)
+    seen = set(merged)
+    changed = False
+    for ip in new_ips:
+        if ip not in seen:
+            merged.append(ip)
+            seen.add(ip)
+            changed = True
+    if not changed:
+        return False
+
+    new_line = f"addr-history: {' '.join(merged)}"
+    if span is not None:
+        lines[span[0] : span[1]] = [new_line]
+    else:
+        lines.insert(header_end, new_line)
+
+    profile_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    return True
 
 
 @dataclass
@@ -281,6 +354,8 @@ def _parse_profile(
             if current_header is not None:
                 yield current_header
                 current_header = None
+            if current_from is not None:
+                yield current_from
             current_from = ProfileFromBlock(from_type=value, options={})
             pending_options = []
             continue
@@ -384,9 +459,234 @@ def update_profile_entry_option(
     return False
 
 
+INSTANCE_FROM_HANDLERS: dict[str, str] = {
+    "ec2 instance": "aws elastic ip",
+    "aliyun instance": "aliyun elastic ip",
+}
+
+
+def is_instance_from_type(from_type: str) -> bool:
+    return canonical_ws_tokens(from_type).lower() in INSTANCE_FROM_HANDLERS
+
+
+def handler_config_for_instance_from(
+    profile: Profile,
+    from_block: ProfileFromBlock,
+) -> tuple[str, dict[str, str]] | None:
+    handler_type = INSTANCE_FROM_HANDLERS.get(canonical_ws_tokens(from_block.from_type).lower())
+    if handler_type is None:
+        return None
+    config: dict[str, str] = {}
+    for entry in profile.entries:
+        if canonical_ws_tokens(entry.type).lower() == handler_type:
+            config.update(entry.config)
+    config.update(from_block.options)
+    return handler_type, config
+
+
+def instance_from_block_addresses(
+    profile: Profile,
+    from_block: ProfileFromBlock,
+    cli_options: dict | None = None,
+    proxy: str | None = None,
+    logger: logging.Logger | None = None,
+) -> AddressSet:
+    from chaddr.types import create_handler
+
+    spec = handler_config_for_instance_from(profile, from_block)
+    if spec is None:
+        return AddressSet()
+    handler_type, config = spec
+    log = logger or logging.getLogger("chaddr")
+    merged_options = merge_cli_options(profile, cli_options or {})
+    handler = create_handler(handler_type, config, merged_options, proxy, log)
+    diag = handler.diagnose()
+    if not diag.addresses:
+        failed = next((item for item in diag.items if not item.ok), None)
+        if failed:
+            raise RuntimeError(f"{failed.label}: {failed.detail}")
+    ipv4 = next((ip for ip in diag.addresses if is_ipv4(ip)), None)
+    ipv6 = next((ip for ip in diag.addresses if is_ipv6(ip)), None)
+    return AddressSet(ipv4=ipv4, ipv6=ipv6)
+
+
+def instance_profile_addresses(
+    profile: Profile,
+    cli_options: dict | None = None,
+    proxy: str | None = None,
+    logger: logging.Logger | None = None,
+) -> AddressSet:
+    ipv4: str | None = None
+    ipv6: str | None = None
+    for from_block in profile_from_blocks(profile):
+        if not is_instance_from_type(from_block.from_type):
+            continue
+        resolved = instance_from_block_addresses(profile, from_block, cli_options, proxy, logger)
+        if resolved.ipv4:
+            ipv4 = resolved.ipv4
+        if resolved.ipv6:
+            ipv6 = resolved.ipv6
+    return AddressSet(ipv4=ipv4, ipv6=ipv6)
+
+
 def resolve_profile_addresses(profile: Profile) -> "AddressSet":
     from chaddr.address import AddressSet, resolve_from
 
-    if profile.from_block is None:
-        return AddressSet()
-    return resolve_from(profile.from_block.from_type, profile.from_block.options)
+    ipv4: str | None = None
+    ipv6: str | None = None
+    for from_block in profile_from_blocks(profile):
+        if canonical_ws_tokens(from_block.from_type).lower() != "resolve":
+            continue
+        resolved = resolve_from("resolve", from_block.options)
+        if resolved.ipv4:
+            ipv4 = resolved.ipv4
+        if resolved.ipv6:
+            ipv6 = resolved.ipv6
+    return AddressSet(ipv4=ipv4, ipv6=ipv6)
+
+
+def profile_from_blocks(profile: Profile) -> list[ProfileFromBlock]:
+    """Return every from: block in profile file order."""
+    if profile.path is None or not profile.path.is_file():
+        return [profile.from_block] if profile.from_block is not None else []
+    blocks: list[ProfileFromBlock] = []
+    for item in _parse_profile(profile.path.read_text(encoding="utf-8"), []):
+        if isinstance(item, ProfileFromBlock):
+            blocks.append(item)
+    return blocks
+
+
+@dataclass(frozen=True)
+class ProfileAddressFetchEvent:
+    fraction: float
+    message: str
+    entries: list["AddressEntry"]
+    replace_sources: frozenset[str] | None = None
+
+
+def iter_profile_address_fetch(
+    profile: Profile,
+    cli_options: dict | None = None,
+    proxy: str | None = None,
+    logger: logging.Logger | None = None,
+) -> Iterator[ProfileAddressFetchEvent]:
+    """Yield address batches for progressive GUI loading (history → resolve → instance)."""
+    from chaddr.address import AddressEntry, resolve_from
+
+    log = logger or logging.getLogger("chaddr")
+    options = cli_options or {}
+
+    steps: list[tuple[str, frozenset[str] | None, Callable[[], list["AddressEntry"]]]] = []
+
+    history: list[AddressEntry] = []
+    for addr_set in profile.addr_history_sets():
+        for ip in addr_set.all():
+            if is_ipv4(ip) or is_ipv6(ip):
+                history.append(AddressEntry.from_history_ip(ip))
+    if history:
+        steps.append(("Loading address history...", frozenset({"history"}), lambda h=history: h))
+
+    old_ip = options.get("old_ip")
+    if old_ip and (is_ipv4(str(old_ip)) or is_ipv6(str(old_ip))):
+        steps.append(
+            (
+                "Loading old IP...",
+                frozenset({"old-ip"}),
+                lambda ip=str(old_ip): [AddressEntry.from_old_ip(ip)],
+            )
+        )
+
+    resolve_blocks = [
+        block
+        for block in profile_from_blocks(profile)
+        if canonical_ws_tokens(block.from_type).lower() == "resolve"
+    ]
+    for index, from_block in enumerate(resolve_blocks):
+        hostname = (
+            from_block.options.get("resolve")
+            or from_block.options.get("host")
+            or from_block.options.get("name")
+            or "hostname"
+        )
+
+        def _resolve_entries(block=from_block) -> list[AddressEntry]:
+            resolved = resolve_from("resolve", block.options)
+            return AddressEntry.from_address_set(resolved, "resolve")
+
+        steps.append(
+            (
+                f"Resolving {hostname}...",
+                frozenset({"resolve"}) if index == 0 else None,
+                _resolve_entries,
+            )
+        )
+
+    instance_blocks = [
+        block for block in profile_from_blocks(profile) if is_instance_from_type(block.from_type)
+    ]
+    for index, from_block in enumerate(instance_blocks):
+        instance_id = (
+            from_block.options.get("instance")
+            or from_block.options.get("instance_id")
+            or from_block.from_type
+        )
+
+        def _instance_entries(block=from_block) -> list[AddressEntry]:
+            resolved = instance_from_block_addresses(profile, block, options, proxy, log)
+            instance_id = block.options.get("instance") or block.options.get("instance_id") or ""
+            entries: list[AddressEntry] = []
+            if resolved.ipv4:
+                entries.append(AddressEntry("IPv4", resolved.ipv4, "instance", detail=instance_id))
+            if resolved.ipv6:
+                entries.append(AddressEntry("IPv6", resolved.ipv6, "instance", detail=instance_id))
+            return entries
+
+        steps.append(
+            (
+                f"Fetching {instance_id}...",
+                frozenset({"instance"}) if index == 0 else None,
+                _instance_entries,
+            )
+        )
+
+    if not steps:
+        yield ProfileAddressFetchEvent(1.0, "No profile addresses", [], None)
+        return
+
+    total = len(steps)
+    for index, (message, replace_sources, fetch) in enumerate(steps):
+        try:
+            entries = fetch()
+        except Exception as exc:
+            log.warning("Address fetch skipped for %s: %s", profile.name, exc)
+            entries = []
+        yield ProfileAddressFetchEvent(
+            (index + 1) / total,
+            message,
+            entries,
+            replace_sources,
+        )
+
+
+def list_profile_candidate_addresses(
+    profile: Profile,
+    cli_options: dict | None = None,
+    proxy: str | None = None,
+    logger: logging.Logger | None = None,
+) -> list["AddressEntry"]:
+    """Collect all candidate addresses for a profile with source labels."""
+    from chaddr.address import AddressEntry
+
+    entries: list[AddressEntry] = []
+    seen: set[tuple[str, str, str]] = set()
+    for event in iter_profile_address_fetch(profile, cli_options, proxy, logger):
+        if event.replace_sources:
+            entries = [entry for entry in entries if entry.source not in event.replace_sources]
+            seen = {(entry.family, entry.address, entry.source) for entry in entries}
+        for entry in event.entries:
+            key = (entry.family, entry.address, entry.source)
+            if key in seen:
+                continue
+            seen.add(key)
+            entries.append(entry)
+    return entries
