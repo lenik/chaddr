@@ -1,0 +1,18 @@
+option(
+  'profile_dir',
+  type: 'string',
+  value: '',
+  description: 'Example profile install directory (default: datadir/chaddr/profile)',
+)
+option(
+  'doc_dir',
+  type: 'string',
+  value: '',
+  description: 'Example config / documentation install directory (default: datadir/doc/chaddr/examples)',
+)
+option(
+  'bashcompletiondir',
+  type: 'string',
+  value: '',
+  description: 'Bash completion directory (default: datadir/bash-completion/completions)',
+)
