@@ -39,6 +39,10 @@ HTTP or SOCKS proxy URL, for example
 .B \-\-diagnose
 Run diagnosis only and print results to stdout (CLI mode).
 .TP
+.BR \-A ", " \-\-addresses
+List all candidate addresses for each profile with source labels
+(\fIhistory\fR, \fIresolve\fR, \fIinstance\fR, \fIold-ip\fR, etc.) and exit.
+.TP
 .B \-\-renew
 Reallocate elastic IP addresses and propagate changes (CLI mode).
 .TP
@@ -108,16 +112,27 @@ path: /var/cache/bind/db.example.com
 .RE
 .PP
 .B from: resolve
-with a hostname to discover current addresses. See
+with a hostname to discover current addresses. Profiles may also use
+.B from: ec2 instance
+or
+.B from: aliyun instance
+(with
+.B instance:
+ID) to read the public IPv4 from the cloud API. See
 .BR chaddr-profile (5)
 for the full profile syntax, header fields, resource types, and examples. A
 trailing
 .B \\
 continues a line on the next physical line. Spare addresses from earlier
-handlers or the GUI help match old IPs in hosts files.
+handlers or the GUI help match old IPs in hosts files, zone files, and plain
+.B file
+entries.
 .SH GUI
-The graphical interface lets you select profiles, edit current and new
-addresses, diagnose resources, renew elastic IPs, and apply manual changes.
+The graphical interface lets you select profiles, manage a unified address list
+(with source labels), diagnose resources, renew elastic IPs, and apply manual
+changes. Address candidates load in the background when a profile is selected;
+use the stop control beside the progress bar to cancel. Apply and Renew open the
+Logging tab for the active profile.
 The profile list title shows the active directory, for example
 .IR "Profile: ~/.config/chaddr/profile/" .
 Use

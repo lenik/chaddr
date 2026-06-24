@@ -8,9 +8,10 @@ Homepage: https://github.com/lenik/chaddr
 
 ## Features
 
-- **GUI** — profile picker, address CRUD, diagnose, renew, and apply with live
-  logging and diagnostics tabs
-- **CLI** — `--diagnose`, `--renew`, and manual `--apply` for scripting
+- **GUI** — unified Addresses panel with multi-select apply, progressive address
+  loading, stop control, per-profile logging/diagnostics tabs
+- **CLI** — `--diagnose`, `--renew`, `--apply`, and `-A`/`--addresses` to list
+  candidate addresses with source labels
 - **Profiles** — declarative multi-resource definitions under `~/.config/chaddr/profile/`
 - **Config** — JSON file for API keys, proxy, and cached client IP
 - **Elevation** — GUI prompts via `pkexec`, `gksudo`, or `kdesudo` when writing
@@ -100,6 +101,9 @@ path: /etc/hosts
 
 type: zone file
 path: /var/cache/bind/db.example.com
+
+type: file
+path: /etc/apt/sources.list.d/example.sources
 ```
 
 Supported `type` values:
@@ -108,16 +112,23 @@ Supported `type` values:
 |------|--------|
 | `aws elastic ip` | Diagnose, renew (reallocate EIP) |
 | `aliyun elastic ip` | Diagnose, renew |
-| `registered nameserver` | Diagnose, apply (Namecheap NS IP) |
+| `registered nameserver` | Diagnose, apply (Namecheap glue NS by `ns:` name) |
 | `hosts file` | Diagnose, apply (replace old IP in file) |
 | `zone file` | Diagnose, apply (replace A record IP) |
+| `file` | Diagnose, apply (replace IP literals in plain text) |
 
 Use `from: resolve` with `resolve: hostname` to discover current addresses.
+Optional `from: ec2 instance` / `from: aliyun instance` blocks (with `instance:`
+ID) read the public IPv4 from the matching elastic-IP resource block in the same
+profile. A profile may contain multiple `from:` blocks; each contributes
+candidate addresses.
+
 Optional header fields before the first `from:` / `type:` block include `description:`,
 `version:`, and `addr-history:` (whitespace-separated historical IPv4/IPv6 addresses).
 Lines may continue on the next line with a trailing `\`.
-`addr-history` works like `--old-ip` when matching old IPs in hosts files and zone files.
-The GUI and CLI accept spare “from” addresses to locate old IPs in hosts files.
+`addr-history` works like `--old-ip` when matching old IPs in hosts files, zone
+files, and plain `file` entries.
+The GUI and CLI accept spare “from” addresses to locate old IPs in editable files.
 
 ## CLI usage
 
@@ -130,6 +141,7 @@ chaddr [OPTIONS] [PROFILE...]
 | `-c`, `--config FILE` | JSON config file |
 | `--proxy URL` | Proxy for API calls |
 | `--diagnose` | Run checks only |
+| `-A`, `--addresses` | List candidate addresses with source labels (history, resolve, instance, …) |
 | `--renew` | Reallocate elastic IPs |
 | `--apply IP` | Manual apply (IPv4 or IPv6) |
 | `--apply-ipv4`, `--apply-ipv6` | Manual apply by family |
@@ -141,15 +153,21 @@ Examples:
 
 ```bash
 chaddr --diagnose -v example
+chaddr -A example
 chaddr --apply 203.0.113.10 --old-ip 198.51.100.4 example
 chaddr --renew example
 ```
 
 ## GUI usage
 
+- **Addresses** — single list with sources (`history`, `resolve`, `instance`,
+  `manual`, …); multi-select at most one IPv4 and one IPv6 for Apply; loads
+  progressively when a profile is selected (status-bar progress and stop)
 - **Diagnose** — check all resources; opens the right pane on the Diagnostics tab
-- **Renew** — reallocate elastic IPs where supported
-- **Apply** — write new addresses to manual resource types (single profile)
+- **Renew** — reallocate elastic IPs where supported; appends new IPs to profile
+  `addr-history`
+- **Apply** — write selected addresses to manual resource types (single profile);
+  opens the Logging tab for the profile; verbose per-handler logging
 - **File → Browse…** — switch to another profile directory
 - **View → Right Pane** (`Ctrl+H`) — toggle logging/diagnostics notebook
 

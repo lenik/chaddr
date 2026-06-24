@@ -1,3 +1,30 @@
+chaddr (1.0.2) testing; urgency=medium
+
+  * Profiles: support multiple from: blocks per profile (resolve, ec2 instance,
+    aliyun instance); merge instance ID from from: blocks into elastic-IP
+    handlers; append renewed addresses to addr-history in the profile file
+  * Profiles: iter_profile_address_fetch and list_profile_candidate_addresses
+    collect history, resolve, instance, and old-ip sources; CLI -A/--addresses
+    lists candidates with source labels (including instance ID in display)
+  * Aliyun Elastic IP: when instance: is set, look up that ECS instance only
+    (do not fall back to the first running instance in the region)
+  * Resource type: file — plain-text IP literal replace with alnum-boundary
+    regex (not \\b); diagnose Apply preview with > prefix lines
+  * Apply: verbose orchestration logging (old-address resolution path, spare
+    sets, per-handler progress, change counts); profile spare passed to handlers;
+    registered nameserver Apply sets ns: glue to selected IPv4 without matching
+    profile old IP; file handlers log match candidates and replacement counts
+  * GUI: single Addresses panel (multi-select apply, CRUD for manual entries);
+    progressive address loading with status-bar progress and stop control;
+    Apply/Renew activate the profile Logging tab; reduce STC focus churn when
+    appending logs
+  * GUI: diagnose activates per-profile log and diagnostics tabs; renew saves
+    addr-history after success
+  * CLI/GUI: set GTK_A11Y=none on Linux to reduce accessibility warnings
+  * Documentation: README, chaddr(1), chaddr-profile(5), bash completion for -A
+
+ -- Lenik (谢继雷) <lenik@bodz.net>  Thu, 26 Jun 2026 02:00:00 +0800
+
 chaddr (1.0.1) testing; urgency=medium
 
   * CLI: rename --refetch to --renew; pass addr-history and spare sets through

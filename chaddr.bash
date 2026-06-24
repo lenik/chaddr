@@ -40,7 +40,7 @@ _chaddr() {
 
     if [[ ${cur} == -* ]]; then
         COMPREPLY=($(compgen -W '
-            -c --config --proxy --diagnose --renew --apply --apply-ipv4
+            -c --config --proxy --diagnose -A --addresses --renew --apply --apply-ipv4
             --apply-ipv6 --old-ip -v --verbose --no-gui --help
         ' -- "${cur}"))
         return

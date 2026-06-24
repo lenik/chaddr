@@ -103,6 +103,35 @@ from: resolve
 resolve: relay.example.com
 .fi
 .RE
+.TP
+.B from: ec2 instance
+Use the primary public IPv4 of an EC2 instance as a from-source address.
+Requires a matching
+.B aws elastic ip
+resource block in the same profile (for
+.BR region: ).
+.TP
+.B from: aliyun instance
+Use the public IPv4 of an Aliyun ECS instance as a from-source address.
+Requires a matching
+.B aliyun elastic ip
+resource block (for
+.BR region: ).
+.TP
+.B instance: \(laID\(ra
+.TP
+.B instance_id: \(laID\(ra
+EC2 or ECS instance ID. When omitted, the cloud handler searches running
+instances in the configured region.
+.PP
+Example:
+.PP
+.RS
+.nf
+from: ec2 instance
+instance: i-0123456789abcdef0
+.fi
+.RE
 .SH CLI OPTIONS IN PROFILES
 Lines of the form:
 .PP
@@ -189,6 +218,13 @@ Comma-separated nameserver hostnames, for example
 Optional parent domain. When omitted, the domain is derived from the first
 nameserver hostname.
 .PP
+Apply sets each configured nameserver glue record to the selected new IPv4.
+The profile
+.B from:
+address map is not used to match current glue IPs; only the
+.B ns:
+hostnames matter.
+.PP
 Requires Namecheap API credentials in
 .IR chaddr.conf .
 .SS hosts file
@@ -218,6 +254,21 @@ Path to the zone database file.
 .TP
 .B name: \(laNAMES\(ra
 Optional comma-separated record names to limit which A records are updated.
+.SS file
+Diagnose and manually apply IP changes in a plain-text file (for example
+Makefiles, config snippets, or sources list files).
+.TP
+.B path: \(laFILE\(ra
+Path to the file.
+.PP
+IPv4 and IPv6 literals are matched with alphanumeric lookbehind/lookahead
+(not word boundaries), so dotted addresses inside longer tokens are not
+matched. Spare/old IP candidates from
+.B addr-history ,
+.B from:
+blocks, and
+.B \-\-old-ip
+determine which literals to replace.
 .SH ACTIONS BY TYPE
 .TP
 .B Diagnose
@@ -232,8 +283,9 @@ only.
 .B Apply (manual IP change)
 .B registered nameserver ,
 .BR hosts file ,
+.BR zone file ,
 and
-.BR zone file .
+.BR file .
 .SH EXAMPLE
 .PP
 .RS
