@@ -217,6 +217,8 @@ class BindDbHandler(AddressTypeHandler):
             new_line = line
             line_changed = False
             for candidate in sorted(old_candidates, key=len, reverse=True):
+                if candidate == new_ip:
+                    continue
                 if candidate in new_line:
                     new_line = new_line.replace(candidate, new_ip)
                     line_changed = True

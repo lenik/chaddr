@@ -236,6 +236,8 @@ class PlainFileHandler(AddressTypeHandler):
         total_count = 0
         new_text = text
         for candidate in old_candidates:
+            if candidate == new_ip:
+                continue
             if is_ipv4(old_ip) and not is_ipv4(candidate):
                 continue
             if is_ipv6(old_ip) and not is_ipv6(candidate):

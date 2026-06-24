@@ -288,12 +288,18 @@ class HostsFileHandler(AddressTypeHandler):
             if hosts:
                 names = parts[1:]
                 if any(name in hosts for name in names):
-                    parts[0] = new_ip
-                    new_lines.append("\t".join(parts) if "\t" in line else " ".join(parts))
-                    changed = True
-                    match_count += 1
+                    if parts[0] != new_ip:
+                        parts[0] = new_ip
+                        new_lines.append("\t".join(parts) if "\t" in line else " ".join(parts))
+                        changed = True
+                        match_count += 1
+                    else:
+                        new_lines.append(line)
                     continue
             if parts[0] in old_candidates:
+                if parts[0] == new_ip:
+                    new_lines.append(line)
+                    continue
                 parts[0] = new_ip
                 new_line = "\t".join(parts) if "\t" in line else " ".join(parts)
                 new_lines.append(new_line)

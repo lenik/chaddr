@@ -112,21 +112,29 @@ class AddressTypeHandler(ABC):
         changed = False
         if old.ipv4 and new.ipv4:
             if old.ipv4 == new.ipv4:
-                self.logger.info("[%s] skip IPv4: already %s", self.type_name, old.ipv4)
-            elif self.apply_manual(old.ipv4, new.ipv4):
+                self.logger.info(
+                    "[%s] primary IPv4 equals new (%s); scanning spare/old IPs in target",
+                    self.type_name,
+                    old.ipv4,
+                )
+            if self.apply_manual(old.ipv4, new.ipv4):
                 self.logger.info("[%s] IPv4 updated: %s -> %s", self.type_name, old.ipv4, new.ipv4)
                 changed = True
-            else:
+            elif old.ipv4 != new.ipv4:
                 self.logger.warning("[%s] IPv4 unchanged: no match for %s", self.type_name, old.ipv4)
         elif new.ipv4 and not old.ipv4:
             self.logger.warning("[%s] skip IPv4: no old IPv4 in apply map (new=%s)", self.type_name, new.ipv4)
         if old.ipv6 and new.ipv6:
             if old.ipv6 == new.ipv6:
-                self.logger.info("[%s] skip IPv6: already %s", self.type_name, old.ipv6)
-            elif self.apply_manual(old.ipv6, new.ipv6):
+                self.logger.info(
+                    "[%s] primary IPv6 equals new (%s); scanning spare/old IPs in target",
+                    self.type_name,
+                    old.ipv6,
+                )
+            if self.apply_manual(old.ipv6, new.ipv6):
                 self.logger.info("[%s] IPv6 updated: %s -> %s", self.type_name, old.ipv6, new.ipv6)
                 changed = True
-            else:
+            elif old.ipv6 != new.ipv6:
                 self.logger.warning("[%s] IPv6 unchanged: no match for %s", self.type_name, old.ipv6)
         elif new.ipv6 and not old.ipv6:
             self.logger.warning("[%s] skip IPv6: no old IPv6 in apply map (new=%s)", self.type_name, new.ipv6)
