@@ -17,12 +17,12 @@ except ImportError:  # pragma: no cover
 
 from chaddr import __version__
 from chaddr.config import CONFIG_FILENAME, load_config, resolve_client_ip, save_config
-from chaddr.address import AddressEntry, AddressSet, is_ipv4, is_ipv6
+from chaddr.address import AddressEntry, AddressSet, is_ipv4, is_ipv6, merge_address_entries, spare_sets_from_entries
 from chaddr.gui.address_panel import AddressListPanel
 from chaddr.gui.diagnostics_format import mutable_action_lines
 from chaddr.types.hosts_file import APPLY_TARGETS_LABEL
 from chaddr.gui.editor import open_in_system_editor
-from chaddr.gui.highlighter import append_line, clear_text, set_text, setup_styles, _configure_log_stc
+from chaddr.gui.highlighter import append_line, append_lines, clear_text, set_text, setup_styles, _configure_log_stc
 from chaddr.gui.theme import THEMES, apply_theme, install_default_gui_font, mono_font, ui_font
 from chaddr.orchestrator import (
     ProfileRunResult,
@@ -31,11 +31,14 @@ from chaddr.orchestrator import (
     reallocate_profile,
 )
 from chaddr.profile import (
+    ProfileAddressFetchEvent,
     display_profile_path,
     ensure_profile_dir,
     format_profile_dir_label,
     get_profile_dir,
     list_profile_items,
+    iter_profile_address_fetch,
+    instance_profile_addresses,
     load_profile,
     resolve_profile_addresses,
     set_profile_dir,
@@ -64,6 +67,7 @@ STATUS_FAIL = "🔴"
 STATUS_OK = "🟢"
 
 PROFILE_INDICATOR_WIDTH = 34
+PROGRESS_STOP_BTN_SIZE = 18
 
 _profile_log_context = threading.local()
 
@@ -201,7 +205,7 @@ def _make_text_ctrl(parent: wx.Window, min_height: int = 200):
     else:
         ctrl = wx.TextCtrl(parent, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL | wx.BORDER_SUNKEN)
         ctrl.SetFont(mono_font(10))
-    ctrl.SetMinSize((-1, min_height))
+    ctrl.SetMinSize((240, min_height))
     return ctrl
 
 
@@ -277,6 +281,11 @@ class AddressEditFrame(wx.Frame):
         self._profile_status: dict[str, str] = {}
         self._log_ctrls: dict[str, wx.Window] = {}
         self._diag_ctrls: dict[str, wx.Window] = {}
+        self._log_buffer: dict[int, tuple[wx.Window, list[str]]] = {}
+        self._log_flush_pending = False
+        self._address_fetch_token = 0
+        self._address_fetch_thread: threading.Thread | None = None
+        self._operation_cancel_event = threading.Event()
         self._ui_font = ui_font(10)
         self._mono_font = mono_font(10)
 
@@ -386,7 +395,8 @@ class AddressEditFrame(wx.Frame):
 
         self._control_panel = wx.Panel(self._main_split)
         self._control_panel.SetFont(self._ui_font)
-        self._control_panel.SetMinSize((360, -1))
+        # Single address column; toolbar fits without squeezing GTK buttons.
+        self._control_panel.SetMinSize((520, -1))
 
         control = wx.BoxSizer(wx.VERTICAL)
 
@@ -424,42 +434,15 @@ class AddressEditFrame(wx.Frame):
         self.profile_list.Bind(wx.EVT_SIZE, self._on_profile_list_size)
         self.profile_list.Bind(wx.EVT_KEY_DOWN, self._on_profile_list_key)
 
-        address_box = wx.StaticBox(self._control_panel, label="Address")
+        address_box = wx.StaticBox(self._control_panel, label="Addresses")
         address_sizer = wx.StaticBoxSizer(address_box, wx.VERTICAL)
+        self.address_panel = AddressListPanel(self._control_panel)
+        address_sizer.Add(self.address_panel, 1, wx.EXPAND | wx.ALL, 6)
+        control.Add(address_sizer, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
-        address_row = wx.BoxSizer(wx.HORIZONTAL)
-
-        current_col = wx.BoxSizer(wx.VERTICAL)
-        current_label = wx.StaticText(self._control_panel, label="Current addresses")
-        current_label.SetFont(self._ui_font)
-        current_col.Add(current_label, 0, wx.BOTTOM, 4)
-        self.current_address_panel = AddressListPanel(
-            self._control_panel,
-            default_source="resolve",
-            trailing="diagnose",
-        )
-        current_col.Add(self.current_address_panel, 1, wx.EXPAND)
-        address_row.Add(current_col, 1, wx.EXPAND | wx.RIGHT, 6)
-
-        new_col = wx.BoxSizer(wx.VERTICAL)
-        new_label = wx.StaticText(self._control_panel, label="New addresses")
-        new_label.SetFont(self._ui_font)
-        new_col.Add(new_label, 0, wx.BOTTOM, 4)
-        self.new_address_panel = AddressListPanel(
-            self._control_panel,
-            default_source="manual",
-            limit_one_per_family=True,
-            trailing="renew_apply",
-        )
-        new_col.Add(self.new_address_panel, 1, wx.EXPAND)
-        address_row.Add(new_col, 1, wx.EXPAND | wx.LEFT, 6)
-
-        address_sizer.Add(address_row, 0, wx.EXPAND | wx.ALL, 6)
-        control.Add(address_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
-
-        self.diagnose_btn = self.current_address_panel.diagnose_btn
-        self.renew_btn = self.new_address_panel.renew_btn
-        self.apply_btn = self.new_address_panel.apply_btn
+        self.diagnose_btn = self.address_panel.diagnose_btn
+        self.renew_btn = self.address_panel.renew_btn
+        self.apply_btn = self.address_panel.apply_btn
 
         self._control_panel.SetSizer(control)
 
@@ -513,6 +496,8 @@ class AddressEditFrame(wx.Frame):
         self.apply_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._run_async("apply", self._do_apply))
         self.profile_list.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_profile_selection)
         self.profile_list.Bind(wx.EVT_LIST_ITEM_DESELECTED, self._on_profile_selection)
+        self.address_panel.set_on_changed(self._refresh_action_buttons)
+        self.address_panel.listbox.Bind(wx.EVT_LISTBOX, lambda _evt: self._refresh_action_buttons())
 
     def _initial_main_sash(self) -> int:
         min_pane = self._main_split.GetMinimumPaneSize()
@@ -584,34 +569,70 @@ class AddressEditFrame(wx.Frame):
         self._progress = wx.Gauge(self._status_bar, range=100, size=(130, 16))
         self._progress.SetValue(0)
         self._progress.Hide()
+        stop_icon = _art_bitmap(wx.ART_CROSS_MARK, wx.ART_BUTTON, 14)
+        self._stop_btn = wx.BitmapButton(
+            self._status_bar,
+            wx.ID_ANY,
+            stop_icon,
+            style=wx.BORDER_NONE,
+            size=(PROGRESS_STOP_BTN_SIZE, PROGRESS_STOP_BTN_SIZE),
+        )
+        self._stop_btn.SetToolTip("Stop current operation")
+        self._stop_btn.Hide()
+        self._stop_btn.Bind(wx.EVT_BUTTON, self._on_stop_operation)
         self._status_bar.Bind(wx.EVT_SIZE, self._on_status_bar_size)
 
     def _on_status_bar_size(self, evt) -> None:
-        if self._progress.IsShown():
+        if self._progress.IsShown() or self._stop_btn.IsShown():
             self._layout_status_bar_progress()
         evt.Skip()
 
     def _layout_status_bar_progress(self) -> None:
         if not hasattr(self, "_status_bar") or not hasattr(self, "_progress"):
             return
-        if not self._progress.IsShown():
+        if not self._progress.IsShown() and not self._stop_btn.IsShown():
             return
         rect = self._status_bar.GetFieldRect(1)
-        self._progress.SetSize(
-            max(rect.width - 4, 20),
-            max(rect.height - 4, 10),
-        )
-        self._progress.SetPosition((rect.x + 2, rect.y + 2))
+        height = max(rect.height - 4, 12)
+        y = rect.y + max((rect.height - height) // 2, 1)
+        stop_w = PROGRESS_STOP_BTN_SIZE + 2 if self._stop_btn.IsShown() else 0
+        gap = 2 if stop_w else 0
+        gauge_w = max(rect.width - stop_w - gap - 4, 20)
+        self._progress.SetSize(gauge_w, height)
+        self._progress.SetPosition((rect.x + 2, y))
+        if self._stop_btn.IsShown():
+            self._stop_btn.SetSize(PROGRESS_STOP_BTN_SIZE, PROGRESS_STOP_BTN_SIZE)
+            self._stop_btn.SetPosition((rect.x + rect.width - PROGRESS_STOP_BTN_SIZE - 2, y))
         self._status_bar.Refresh()
 
     def _show_progress(self) -> None:
         self._progress.SetValue(0)
         self._progress.Show()
+        self._stop_btn.Show()
         self._layout_status_bar_progress()
 
     def _hide_progress(self) -> None:
         self._progress.Hide()
+        self._stop_btn.Hide()
         self._status_bar.Refresh()
+
+    def _on_stop_operation(self, _evt: wx.CommandEvent) -> None:
+        self._cancel_current_operation()
+
+    def _cancel_current_operation(self) -> None:
+        self._operation_cancel_event.set()
+        self._address_fetch_token += 1
+        wx.CallAfter(self._apply_operation_cancelled)
+
+    def _apply_operation_cancelled(self) -> None:
+        worker_alive = self._worker is not None and self._worker.is_alive()
+        if worker_alive:
+            self._set_action("Stopping...")
+            return
+        self._hide_progress()
+        self._set_action("Cancelled")
+        self._operation_cancel_event.clear()
+        self._refresh_action_buttons()
 
     def _start_public_ip_fetch(self) -> None:
         def worker() -> None:
@@ -677,10 +698,7 @@ class AddressEditFrame(wx.Frame):
                 total += 1
         return total
 
-    def _strip_addr_history(self, entries: list[AddressEntry]) -> list[AddressEntry]:
-        return [entry for entry in entries if entry.source != "addr-history"]
-
-    def _profile_addr_history_entries(self, profile_name: str) -> list[AddressEntry]:
+    def _profile_history_entries(self, profile_name: str) -> list[AddressEntry]:
         profile = load_profile(profile_name)
         entries: list[AddressEntry] = []
         for addr_set in profile.addr_history_sets():
@@ -696,86 +714,46 @@ class AddressEditFrame(wx.Frame):
         if not is_ipv4(old_ip) and not is_ipv6(old_ip):
             self.logger.warning("Ignoring invalid --old-ip: %s", old_ip)
             return
-        entries = list(self.current_address_panel.get_entries())
+        entries = list(self.address_panel.get_entries())
         if any(entry.address == old_ip for entry in entries):
             return
         entries.append(AddressEntry.from_old_ip(old_ip))
-        self.current_address_panel.set_entries(entries)
+        self.address_panel.set_entries(entries)
 
-    def _seed_addr_history(self) -> None:
+    def _seed_history(self) -> None:
         selected = self._selected_profiles()
-        entries = self._strip_addr_history(list(self.current_address_panel.get_entries()))
-        if len(selected) == 1:
-            known = {entry.address for entry in entries}
-            for entry in self._profile_addr_history_entries(selected[0]):
-                if entry.address not in known:
-                    entries.append(entry)
-                    known.add(entry.address)
-        self.current_address_panel.set_entries(entries)
+        if len(selected) != 1:
+            return
+        entries = merge_address_entries(
+            self.address_panel.get_entries(),
+            self._profile_history_entries(selected[0]),
+        )
+        self.address_panel.set_entries(entries)
 
-    def _spare_entries(self) -> list[AddressEntry]:
-        return [entry for entry in self.current_address_panel.get_entries() if entry.spare]
-
-    def _merge_current_entries(self, primary: list[AddressEntry]) -> list[AddressEntry]:
-        primary_ips = {entry.address for entry in primary}
-        spare = [
-            entry
-            for entry in self._strip_addr_history(self.current_address_panel.get_entries())
-            if entry.spare and entry.address not in primary_ips
-        ]
-        for entry in primary:
-            entry.spare = False
-        for entry in spare:
-            entry.spare = True
-        merged = list(primary) + spare
-        selected = self._selected_profiles()
-        if len(selected) == 1:
-            known = {entry.address for entry in merged}
-            for entry in self._profile_addr_history_entries(selected[0]):
-                if entry.address not in known:
-                    entry.spare = True
-                    merged.append(entry)
-        return merged
-
-    def _set_current_addresses(self, addresses: AddressSet, source: str = "resolve") -> None:
-        primary = AddressEntry.from_address_set(addresses, source)
-        wx.CallAfter(self.current_address_panel.set_entries, self._merge_current_entries(primary))
-
-    def _set_current_entries(self, primary: list[AddressEntry], spare: list[AddressEntry] | None = None) -> None:
-        merged = list(primary)
-        primary_ips = {entry.address for entry in primary}
-        for entry in primary:
-            entry.spare = False
-        for entry in spare or []:
-            if entry.address in primary_ips:
-                continue
-            entry.spare = True
-            merged.append(entry)
-        for entry in self._strip_addr_history(self.current_address_panel.get_entries()):
-            if not entry.spare or entry.address in primary_ips:
-                continue
-            if any(item.address == entry.address for item in merged):
-                continue
-            entry.spare = True
-            merged.append(entry)
-        selected = self._selected_profiles()
-        if len(selected) == 1:
-            known = {entry.address for entry in merged}
-            for entry in self._profile_addr_history_entries(selected[0]):
-                if entry.address not in known:
-                    entry.spare = True
-                    merged.append(entry)
-        wx.CallAfter(self.current_address_panel.set_entries, merged)
-
-    def _get_current_addresses(self) -> AddressSet:
-        return self.current_address_panel.get_address_set()
+    def _add_instance_entries(self, ips: list[str]) -> None:
+        incoming = [AddressEntry.from_instance_ip(ip) for ip in ips if is_ipv4(ip) or is_ipv6(ip)]
+        if not incoming:
+            return
+        self.address_panel.set_entries(
+            merge_address_entries(self.address_panel.get_entries(), incoming),
+        )
 
     def _profile_spare_sets(self, profile_name: str) -> list[AddressSet]:
-        """Spare/old-IP sets for one profile (from its file only, not the GUI panel)."""
         profile = load_profile(profile_name)
         sets = list(profile.addr_history_sets())
         try:
             sets.append(resolve_profile_addresses(profile))
+        except Exception:
+            pass
+        try:
+            instance_addrs = instance_profile_addresses(
+                profile,
+                self.cli_options,
+                self.proxy,
+                self.logger,
+            )
+            if not instance_addrs.is_empty():
+                sets.append(instance_addrs)
         except Exception:
             pass
         old_ip = self.cli_options.get("old_ip") or self._old_ip
@@ -784,36 +762,102 @@ class AddressEditFrame(wx.Frame):
                 sets.append(AddressSet(ipv4=old_ip))
             elif is_ipv6(old_ip):
                 sets.append(AddressSet(ipv6=old_ip))
+        sets.extend(spare_sets_from_entries(self.address_panel.get_entries()))
         return sets
 
     def _snapshot_spare_from_sets(self, profiles: list[str]) -> dict[str, list[AddressSet]]:
         """Capture per-profile spare sets on the GUI thread before background work."""
         return {name: self._profile_spare_sets(name) for name in profiles}
 
-    def _get_new_addresses(self) -> AddressSet:
-        return self.new_address_panel.get_address_set()
-
-    def _refresh_current_from_profile(self) -> None:
+    def _refresh_action_buttons(self) -> None:
         selected = self._selected_profiles()
+        if not selected:
+            self.apply_btn.Enable(False)
+            self.renew_btn.Enable(False)
+            return
 
-        def _apply() -> None:
-            if len(selected) == 1:
-                profile = load_profile(selected[0])
-                if profile.from_block is not None:
-                    try:
-                        addresses = resolve_profile_addresses(profile)
-                        resolved = AddressEntry.from_address_set(addresses, "resolve")
-                        kept = [
-                            entry
-                            for entry in self.current_address_panel.get_entries()
-                            if entry.source != "addr-history" and (entry.spare or entry.source != "resolve")
-                        ]
-                        self.current_address_panel.set_entries(kept + resolved)
-                    except Exception as exc:
-                        self.logger.warning("Resolve failed: %s", exc)
-            self._seed_addr_history()
+        has_manual = False
+        has_reallocate = False
+        for name in selected:
+            profile = load_profile(name)
+            has_manual = has_manual or profile.has_manual_types()
+            for entry in profile.entries:
+                handler_cls = get_handler_class(entry.type)
+                if handler_cls and handler_cls.supports_reallocate:
+                    has_reallocate = True
 
-        wx.CallAfter(_apply)
+        self.renew_btn.Enable(has_reallocate)
+        self.apply_btn.Enable(
+            len(selected) == 1
+            and has_manual
+            and self.address_panel.has_valid_apply_selection()
+        )
+
+    def _refresh_addresses_from_profile(self) -> None:
+        selected = self._selected_profiles()
+        if len(selected) != 1:
+            return
+
+        profile_name = selected[0]
+        self._operation_cancel_event.clear()
+        self._address_fetch_token += 1
+        token = self._address_fetch_token
+        manual_entries = [
+            entry for entry in self.address_panel.get_entries() if entry.source == "manual"
+        ]
+
+        wx.CallAfter(self._begin_address_fetch, token, manual_entries)
+
+        def worker() -> None:
+            try:
+                profile = load_profile(profile_name)
+                for event in iter_profile_address_fetch(
+                    profile,
+                    self.cli_options,
+                    self.proxy,
+                    self.logger,
+                ):
+                    if token != self._address_fetch_token:
+                        return
+                    wx.CallAfter(self._on_address_fetch_step, token, event)
+            except Exception as exc:
+                self.logger.warning("Address fetch failed for %s: %s", profile_name, exc)
+            finally:
+                wx.CallAfter(self._finish_address_fetch, token)
+
+        self._address_fetch_thread = threading.Thread(target=worker, daemon=True, name="address-fetch")
+        self._address_fetch_thread.start()
+
+    def _begin_address_fetch(self, token: int, manual_entries: list[AddressEntry]) -> None:
+        if token != self._address_fetch_token:
+            return
+        self.address_panel.set_entries(manual_entries)
+        self._show_progress()
+        self._progress.SetValue(0)
+        self._set_action("Loading addresses...")
+
+    def _on_address_fetch_step(self, token: int, event: ProfileAddressFetchEvent) -> None:
+        if token != self._address_fetch_token:
+            return
+        self.address_panel.merge_entries(event.entries, replace_sources=event.replace_sources)
+        self._progress.SetValue(max(0, min(100, int(event.fraction * 100))))
+        self._set_action(event.message)
+        self._refresh_action_buttons()
+
+    def _finish_address_fetch(self, token: int) -> None:
+        if token != self._address_fetch_token:
+            return
+        if self._operation_cancel_event.is_set():
+            self._hide_progress()
+            self._set_action("Cancelled")
+            self._operation_cancel_event.clear()
+            self._refresh_action_buttons()
+            return
+        if not (self._worker and self._worker.is_alive()):
+            self._progress.SetValue(100)
+            self._hide_progress()
+            self._set_action("Ready")
+        self._refresh_action_buttons()
 
     def _setup_logging(self) -> None:
         handler = GuiLogHandler(self._append_log)
@@ -833,10 +877,24 @@ class AddressEditFrame(wx.Frame):
         else:
             return
         for ctrl in targets:
-            append_line(ctrl, message, self.syntax_highlight)
+            key = id(ctrl)
+            if key not in self._log_buffer:
+                self._log_buffer[key] = (ctrl, [])
+            self._log_buffer[key][1].append(message)
+        if not self._log_flush_pending:
+            self._log_flush_pending = True
+            wx.CallAfter(self._flush_log_buffer)
+
+    def _flush_log_buffer(self) -> None:
+        self._log_flush_pending = False
+        for ctrl, messages in list(self._log_buffer.values()):
+            append_lines(ctrl, messages, self.syntax_highlight)
+        self._log_buffer.clear()
         self._update_status_bar()
 
     def _clear_log(self) -> None:
+        self._log_buffer.clear()
+        self._log_flush_pending = False
         for ctrl in self._log_ctrls.values():
             clear_text(ctrl)
         self._warning_count = 0
@@ -858,16 +916,34 @@ class AddressEditFrame(wx.Frame):
         sizer.Add(hint, 0, wx.ALIGN_CENTER | wx.LEFT | wx.RIGHT, 12)
         sizer.AddStretchSpacer()
         page.SetSizer(sizer)
-        notebook.AddPage(page, " ")
+        notebook.AddPage(page, "Output")
         return page
 
-    def _drop_notebook_placeholder(self, notebook: wx.Notebook, placeholder: wx.Panel | None) -> None:
+    def _adopt_notebook_placeholder(
+        self,
+        notebook: wx.Notebook,
+        placeholder: wx.Panel | None,
+        name: str,
+    ) -> tuple[wx.Window, wx.Panel | None]:
+        """Reuse the stub page as the first tab (avoid DeletePage — GTK a11y bug)."""
         if placeholder is None:
-            return
+            ctrl = self._create_output_tab(notebook)
+            notebook.AddPage(ctrl.GetParent(), name)
+            return ctrl, None
+
+        for child in list(placeholder.GetChildren()):
+            child.Destroy()
+        placeholder.SetSizer(None)
+        ctrl = _make_text_ctrl(placeholder, min_height=400)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(ctrl, 1, wx.EXPAND | wx.ALL, 6)
+        placeholder.SetSizer(sizer)
+        placeholder.Layout()
         for index in range(notebook.GetPageCount()):
             if notebook.GetPage(index) is placeholder:
-                notebook.DeletePage(index)
-                return
+                notebook.SetPageText(index, name)
+                break
+        return ctrl, None
 
     def _create_output_tab(self, notebook: wx.Notebook) -> wx.Window:
         page = wx.Panel(notebook)
@@ -880,34 +956,74 @@ class AddressEditFrame(wx.Frame):
 
     def _ensure_log_tabs(self, profile_names: list[str], *, reset: bool = False) -> None:
         """Ensure log tabs exist; reset only the listed profiles."""
-        for name in profile_names:
-            ctrl = self._log_ctrls.get(name)
-            if ctrl is None:
-                self._drop_notebook_placeholder(self._log_notebook, self._log_notebook_placeholder)
-                self._log_notebook_placeholder = None
-                ctrl = self._create_output_tab(self._log_notebook)
-                self._log_notebook.AddPage(ctrl.GetParent(), name)
-                self._log_ctrls[name] = ctrl
-            elif reset:
-                clear_text(ctrl)
+        notebook = self._log_notebook
+        notebook.Freeze()
+        try:
+            for name in profile_names:
+                ctrl = self._log_ctrls.get(name)
+                if ctrl is None:
+                    ctrl, self._log_notebook_placeholder = self._adopt_notebook_placeholder(
+                        notebook,
+                        self._log_notebook_placeholder,
+                        name,
+                    )
+                    self._log_ctrls[name] = ctrl
+                elif reset:
+                    clear_text(ctrl)
+        finally:
+            notebook.Thaw()
 
     def _ensure_diag_tabs(self, profile_names: list[str], *, reset: bool = False) -> None:
         """Ensure diagnostic tabs exist; reset only the listed profiles."""
-        for name in profile_names:
-            ctrl = self._diag_ctrls.get(name)
-            if ctrl is None:
-                self._drop_notebook_placeholder(self._diag_notebook, self._diag_notebook_placeholder)
-                self._diag_notebook_placeholder = None
-                ctrl = self._create_output_tab(self._diag_notebook)
-                self._diag_notebook.AddPage(ctrl.GetParent(), name)
-                self._diag_ctrls[name] = ctrl
-            elif reset:
-                clear_text(ctrl)
+        notebook = self._diag_notebook
+        notebook.Freeze()
+        try:
+            for name in profile_names:
+                ctrl = self._diag_ctrls.get(name)
+                if ctrl is None:
+                    ctrl, self._diag_notebook_placeholder = self._adopt_notebook_placeholder(
+                        notebook,
+                        self._diag_notebook_placeholder,
+                        name,
+                    )
+                    self._diag_ctrls[name] = ctrl
+                elif reset:
+                    clear_text(ctrl)
+        finally:
+            notebook.Thaw()
+
+    def _layout_output_pane(self) -> None:
+        if not self._main_split.IsSplit():
+            return
+        self._main_split.Update()
+        self._right_panel.Layout()
+        self._notebook.Layout()
+
+    def _prepare_diagnose_output(self, profile_names: list[str]) -> None:
+        self._prepare_output_panes(diagnostics=True, logging=True)
+        self._layout_output_pane()
+        self._prepare_output_tabs(profile_names, diagnostics=True)
+
+    def _prepare_log_output(self, profile_names: list[str]) -> None:
+        self._prepare_output_panes(diagnostics=False, logging=True)
+        self._layout_output_pane()
+        self._ensure_log_tabs(profile_names, reset=True)
 
     def _prepare_output_tabs(self, profile_names: list[str], *, diagnostics: bool = True) -> None:
         self._ensure_log_tabs(profile_names, reset=True)
         if diagnostics:
             self._ensure_diag_tabs(profile_names, reset=True)
+
+    def _activate_profile_output_tabs(self, profile_name: str) -> None:
+        """Select log and diagnostics notebook tabs for *profile_name*."""
+        if not profile_name:
+            return
+        for notebook in (self._log_notebook, self._diag_notebook):
+            for index in range(notebook.GetPageCount()):
+                if notebook.GetPageText(index) == profile_name:
+                    if notebook.GetSelection() != index:
+                        notebook.SetSelection(index)
+                    break
 
     def _append_profile_summary(self, profile_name: str, content: str) -> None:
         if not content:
@@ -915,8 +1031,7 @@ class AddressEditFrame(wx.Frame):
         ctrl = self._diag_ctrls.get(profile_name)
         if ctrl is None:
             return
-        for line in content.splitlines():
-            append_line(ctrl, line, self.syntax_highlight)
+        append_lines(ctrl, content.splitlines(), self.syntax_highlight)
 
     def _sync_profile_list_columns(self) -> None:
         client_width = self.profile_list.GetClientSize().GetWidth()
@@ -1008,8 +1123,8 @@ class AddressEditFrame(wx.Frame):
                 self._select_profile_indices([index])
         self._sync_profile_list_columns()
         self._resource_count = self._count_resources(self._selected_profiles())
-        self._refresh_manual_mode()
-        self._refresh_current_from_profile()
+        self._refresh_action_buttons()
+        self._refresh_addresses_from_profile()
         self._update_status_bar()
 
     def _selected_profiles(self) -> list[str]:
@@ -1017,36 +1132,12 @@ class AddressEditFrame(wx.Frame):
 
     def _on_profile_selection(self, _evt) -> None:
         self._resource_count = self._count_resources(self._selected_profiles())
-        self._refresh_manual_mode()
-        self._refresh_current_from_profile()
+        self._refresh_action_buttons()
+        self._refresh_addresses_from_profile()
         self._update_status_bar()
 
     def _refresh_manual_mode(self) -> None:
-        selected = self._selected_profiles()
-        if not selected:
-            self.new_address_panel.set_enabled(False)
-            self.apply_btn.Enable(False)
-            self.renew_btn.Enable(False)
-            return
-
-        has_manual = False
-        has_reallocate = False
-        for name in selected:
-            profile = load_profile(name)
-            has_manual = has_manual or profile.has_manual_types()
-            for entry in profile.entries:
-                handler_cls = get_handler_class(entry.type)
-                if handler_cls and handler_cls.supports_reallocate:
-                    has_reallocate = True
-
-        if has_manual:
-            self.new_address_panel.set_enabled(True)
-            self.apply_btn.Enable(len(selected) == 1)
-        else:
-            self.new_address_panel.set_enabled(False)
-            self.apply_btn.Enable(False)
-
-        self.renew_btn.Enable(has_reallocate)
+        self._refresh_action_buttons()
 
     def _set_busy(self, busy: bool) -> None:
         menu = self.GetMenuBar()
@@ -1078,18 +1169,19 @@ class AddressEditFrame(wx.Frame):
 
         self._warning_count = 0
         self._error_count = 0
+        self._operation_cancel_event.clear()
         self._set_busy(True)
         wx.CallAfter(self._show_progress)
         self._set_action(f"Running {label}...")
         if label == "diagnose":
-            self._prepare_output_tabs(profiles, diagnostics=True)
-            self._prepare_output_panes(diagnostics=True, logging=True)
-            self._seed_addr_history()
+            self._prepare_diagnose_output(profiles)
+            self._seed_history()
             for name in profiles:
                 self._set_profile_status(name, STATUS_BUSY)
         elif label in ("renew", "apply"):
-            self._ensure_log_tabs(profiles, reset=True)
-            self._prepare_output_panes(diagnostics=False, logging=True)
+            self._prepare_log_output(profiles)
+            if profiles:
+                self._activate_profile_output_tabs(profiles[0])
             for name in profiles:
                 self._set_profile_status(name, STATUS_BUSY)
         else:
@@ -1107,26 +1199,38 @@ class AddressEditFrame(wx.Frame):
                 self.logger.exception("Operation failed: %s", exc)
                 wx.CallAfter(wx.MessageBox, str(exc), "Error", wx.OK | wx.ICON_ERROR)
             finally:
-                wx.CallAfter(self._finish_operation, "Done")
+                cancelled = self._operation_cancel_event.is_set()
+                wx.CallAfter(self._finish_operation, "Cancelled" if cancelled else "Done")
 
         self._worker = threading.Thread(target=worker, daemon=True)
         self._worker.start()
 
     def _finish_operation(self, label: str = "Done") -> None:
+        cancelled = label == "Cancelled"
+        self._operation_cancel_event.clear()
         self._set_busy(False)
-        self._progress.SetValue(100)
+        self._progress.SetValue(100 if not cancelled else 0)
         self._hide_progress()
         self._set_action(label)
+        if cancelled:
+            self.logger.info("Operation cancelled")
 
     def _do_diagnose(self, profiles: list[str], spare_by_profile: dict[str, list[AddressSet]]) -> None:
+        if self._operation_cancel_event.is_set():
+            return
         aggregate = _AggregateProgress(self._update_progress, profiles)
         results: dict[str, ProfileRunResult] = {}
 
-        def diagnose_one(name: str) -> ProfileRunResult:
+        def diagnose_one(name: str) -> ProfileRunResult | None:
+            if self._operation_cancel_event.is_set():
+                return None
+            wx.CallAfter(self._activate_profile_output_tabs, name)
             wx.CallAfter(self._append_profile_summary, name, f"=== Profile: {name} ===\n")
             profile = load_profile(name)
 
             def on_result(diag: DiagnoseResult, profile_name: str = name) -> None:
+                if self._operation_cancel_event.is_set():
+                    return
                 text = self._format_diagnose_result(diag) + "\n"
                 wx.CallAfter(
                     lambda pn=profile_name, content=text: self._append_profile_summary(pn, content),
@@ -1148,6 +1252,8 @@ class AddressEditFrame(wx.Frame):
                     self.logger.exception("Diagnose failed for %s: %s", name, exc)
                 result = ProfileRunResult(name, False, str(exc))
 
+            if self._operation_cancel_event.is_set():
+                return result
             wx.CallAfter(self._append_profile_summary, name, f"Result: {result.message}\n\n")
             wx.CallAfter(
                 self._set_profile_status,
@@ -1157,12 +1263,21 @@ class AddressEditFrame(wx.Frame):
             return result
 
         with ThreadPoolExecutor(max_workers=max(1, len(profiles))) as executor:
-            futures = {executor.submit(diagnose_one, name): name for name in profiles}
+            futures = {}
+            for name in profiles:
+                if self._operation_cancel_event.is_set():
+                    break
+                futures[executor.submit(diagnose_one, name)] = name
             for future in as_completed(futures):
+                if self._operation_cancel_event.is_set():
+                    break
                 name = futures[future]
-                results[name] = future.result()
+                result = future.result()
+                if result is not None:
+                    results[name] = result
 
-        wx.CallAfter(self._apply_diagnose_batch_results, profiles, results)
+        if not self._operation_cancel_event.is_set():
+            wx.CallAfter(self._apply_diagnose_batch_results, profiles, results)
 
     def _apply_diagnose_batch_results(
         self,
@@ -1170,6 +1285,7 @@ class AddressEditFrame(wx.Frame):
         results: dict[str, ProfileRunResult],
     ) -> None:
         all_ok = True
+        instance_ips: list[str] = []
         for name in profiles:
             result = results.get(name)
             if result is None:
@@ -1177,6 +1293,12 @@ class AddressEditFrame(wx.Frame):
             with ProfileLogContext(name):
                 self._log_diagnose(result)
             all_ok = all_ok and result.ok
+            if len(profiles) == 1:
+                for diag in result.diagnose_results:
+                    if diag.type_name in ("aws elastic ip", "aliyun elastic ip"):
+                        instance_ips.extend(diag.addresses)
+        if instance_ips:
+            wx.CallAfter(self._add_instance_entries, instance_ips)
         summary = "All profiles OK" if all_ok else "Some profiles have issues"
         self.logger.info("=== Diagnose summary: %s ===", summary)
 
@@ -1218,14 +1340,21 @@ class AddressEditFrame(wx.Frame):
 
     def _do_renew(self, profiles: list[str], spare_by_profile: dict[str, list[AddressSet]]) -> None:
         aggregate = _AggregateProgress(self._update_progress, profiles)
+        try:
+            override = self.address_panel.get_apply_address_set()
+        except ValueError:
+            override = None
 
         for name in profiles:
+            if self._operation_cancel_event.is_set():
+                break
+            wx.CallAfter(self._activate_profile_output_tabs, name)
             profile = load_profile(name)
             try:
                 with ProfileLogContext(name):
                     result = reallocate_profile(
                         profile,
-                        self._get_new_addresses(),
+                        override,
                         self.cli_options,
                         self.proxy,
                         self.logger,
@@ -1243,12 +1372,11 @@ class AddressEditFrame(wx.Frame):
                     self.logger.info("Profile %s: %s", name, result.message)
                 wx.CallAfter(self._set_profile_status, name, STATUS_OK)
                 if result.new_addresses and not result.new_addresses.is_empty():
-                    wx.CallAfter(self._set_current_addresses, result.new_addresses, "renew")
                     wx.CallAfter(
-                        self.new_address_panel.set_address_set,
-                        result.new_addresses,
-                        "allocated",
+                        self._add_instance_entries,
+                        result.new_addresses.all(),
                     )
+                    wx.CallAfter(self._seed_history)
             else:
                 with ProfileLogContext(name):
                     self.logger.error("Profile %s failed: %s", name, result.message)
@@ -1265,27 +1393,31 @@ class AddressEditFrame(wx.Frame):
             return
 
         try:
-            new_addresses = self._get_new_addresses()
+            new_addresses = self.address_panel.get_apply_address_set()
         except ValueError as exc:
-            wx.CallAfter(wx.MessageBox, str(exc), "Invalid address", wx.OK | wx.ICON_WARNING)
-            return
-
-        if new_addresses.is_empty():
-            wx.CallAfter(
-                wx.MessageBox,
-                "Enter at least one new IPv4 or IPv6 address.",
-                "Missing address",
-                wx.OK | wx.ICON_WARNING,
-            )
+            wx.CallAfter(wx.MessageBox, str(exc), "Invalid selection", wx.OK | wx.ICON_WARNING)
             return
 
         name = profiles[0]
+        if self._operation_cancel_event.is_set():
+            return
+        wx.CallAfter(self._activate_profile_output_tabs, name)
         profile = load_profile(name)
 
         def progress(fraction: float, message: str) -> None:
             self._update_progress(fraction, message)
 
         with ProfileLogContext(name):
+            spare_sets = spare_by_profile.get(name, [])
+            self.logger.info(
+                "Apply %s: selected %s (%d spare set(s) from panel/profile)",
+                name,
+                new_addresses.format(),
+                len(spare_sets),
+            )
+            for index, addr_set in enumerate(spare_sets, start=1):
+                if not addr_set.is_empty():
+                    self.logger.info("  spare[%d]: %s", index, addr_set.format())
             result = apply_address_profile(
                 profile,
                 new_addresses,
@@ -1299,13 +1431,18 @@ class AddressEditFrame(wx.Frame):
             wx.CallAfter(self._set_profile_status, name, STATUS_OK)
             with ProfileLogContext(name):
                 self.logger.info("Profile %s: %s", name, result.message)
-            if result.new_addresses:
-                wx.CallAfter(self._set_current_addresses, result.new_addresses, "applied")
-                wx.CallAfter(self.new_address_panel.set_entries, [])
+                if result.old_addresses and result.new_addresses:
+                    self.logger.info(
+                        "  old: %s  new: %s",
+                        result.old_addresses.format(),
+                        result.new_addresses.format(),
+                    )
         else:
             wx.CallAfter(self._set_profile_status, name, STATUS_FAIL)
             with ProfileLogContext(name):
                 self.logger.error("Profile %s failed: %s", name, result.message)
+                for diag in result.diagnose_results:
+                    self.logger.error("  [%s] %s: %s", diag.type_name, diag.summary, ", ".join(diag.addresses))
 
     def apply_proxy(self, proxy: str | None, save_to_config: bool = False) -> None:
         self.proxy = proxy
@@ -1463,6 +1600,8 @@ def _show_diagnose_address_footer(diag: DiagnoseResult) -> bool:
     if diag.type_name in ("zone file", "bind db"):
         return False
     if diag.type_name == "hosts file":
+        return False
+    if diag.type_name == "file":
         return False
     return True
 

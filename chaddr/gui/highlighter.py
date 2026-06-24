@@ -90,11 +90,16 @@ def _configure_log_stc(ctrl) -> None:
     ctrl.SetMarginWidth(2, 0)
     ctrl.SetCaretWidth(0)
     ctrl.SetCaretLineVisible(False)
+    if hasattr(ctrl, "SetUseHorizontalScrollBar"):
+        ctrl.SetUseHorizontalScrollBar(False)
+    if hasattr(ctrl, "SetCanFocus"):
+        ctrl.SetCanFocus(False)
     setup_styles(ctrl)
 
 
-def append_line(ctrl, line: str, syntax_highlight: bool) -> None:
-    text = line.rstrip("\n") + "\n"
+def append_lines(ctrl, lines: list[str], syntax_highlight: bool) -> None:
+    if not lines:
+        return
     is_stc = stc is not None and hasattr(ctrl, "StartStyling")
     readonly = is_stc and ctrl.GetReadOnly()
 
@@ -104,13 +109,15 @@ def append_line(ctrl, line: str, syntax_highlight: bool) -> None:
         if readonly:
             ctrl.SetReadOnly(False)
 
-        if not is_stc or not syntax_highlight:
-            ctrl.AppendText(text)
-        else:
-            start = ctrl.GetLength()
-            ctrl.AppendText(text)
-            ctrl.StartStyling(start)
-            ctrl.SetStyling(len(text), style_for_line(line))
+        for line in lines:
+            text = line.rstrip("\n") + "\n"
+            if not is_stc or not syntax_highlight:
+                ctrl.AppendText(text)
+            else:
+                start = ctrl.GetLength()
+                ctrl.AppendText(text)
+                ctrl.StartStyling(start)
+                ctrl.SetStyling(len(text), style_for_line(line))
 
         if readonly:
             ctrl.SetReadOnly(True)
@@ -119,6 +126,10 @@ def append_line(ctrl, line: str, syntax_highlight: bool) -> None:
     finally:
         if is_stc:
             ctrl.Thaw()
+
+
+def append_line(ctrl, line: str, syntax_highlight: bool) -> None:
+    append_lines(ctrl, [line], syntax_highlight)
 
 
 def clear_text(ctrl) -> None:

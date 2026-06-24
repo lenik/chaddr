@@ -1,20 +1,19 @@
-"""Side-by-side address list panels with CRUD."""
+"""Address list panel with CRUD and profile actions."""
 
 from __future__ import annotations
 
-import html
+from collections.abc import Callable
 
 import wx
-import wx.html
 
 from chaddr.address import (
     AddressEntry,
     AddressSet,
-    address_set_from_entries,
+    address_set_from_selection,
     is_ipv4,
     is_ipv6,
 )
-from chaddr.gui.theme import mono_font, spare_entry_css_colour, ui_font
+from chaddr.gui.theme import mono_font, ui_font
 
 
 def _action_button_height(parent: wx.Window) -> int:
@@ -36,66 +35,62 @@ def _scaled_art_bitmap(art_id: str, size: int) -> wx.Bitmap:
     return wx.Bitmap(scaled)
 
 
-GTK_BUTTON_MARGIN = 14  # GTK ~7px padding per side for bitmap buttons
+GTK_BUTTON_MARGIN = 14
+ICON_BUTTON_SIDE = 32
+BTN_ROW_BORDER = 2
 
 
 def _btn_row_flags() -> int:
-    """Sizer flags that honour button minimum size (wx version portable)."""
     if hasattr(wx, "FIX_MINSIZE"):
-        return wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.FIX_MINSIZE
-    return wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ADJUST_MINSIZE
+        return wx.ALIGN_CENTER_VERTICAL | wx.FIX_MINSIZE
+    return wx.ALIGN_CENTER_VERTICAL | wx.ADJUST_MINSIZE
+
+
+def _button_row_min_width(button_count: int, side: int = ICON_BUTTON_SIDE) -> int:
+    per_button = side + BTN_ROW_BORDER * 2
+    return button_count * per_button + BTN_ROW_BORDER * 2
 
 
 def _icon_button(parent: wx.Window, art_id: str, tooltip: str, height: int) -> wx.Button:
-    side = max(height, 36)
+    side = max(height, ICON_BUTTON_SIDE)
     icon_size = max(16, side - GTK_BUTTON_MARGIN)
     bitmap = _scaled_art_bitmap(art_id, icon_size)
-    btn = wx.BitmapButton(parent, wx.ID_ANY, bitmap)
+    btn = wx.BitmapButton(parent, wx.ID_ANY, bitmap, size=(side, side))
     btn.SetMinSize((side, side))
+    btn.SetMaxSize((side, side))
     btn.SetToolTip(tooltip)
     return btn
 
 
-def _icon_action_button(parent: wx.Window, art_id: str, label: str, height: int) -> wx.Button:
-    icon_size = max(16, height - GTK_BUTTON_MARGIN)
-    btn = wx.Button(parent, label=label)
-    btn.SetFont(ui_font(10))
-    btn.SetBitmap(_scaled_art_bitmap(art_id, icon_size))
-    best = btn.GetBestSize()
-    btn.SetMinSize((max(best.GetWidth(), icon_size + GTK_BUTTON_MARGIN + 48), max(height, 32)))
-    btn.SetToolTip(label)
-    return btn
-
-
-class AddressHtmlListBox(wx.html.HtmlListBox):
+class AddressListBox(wx.ListBox):
     def __init__(self, parent: wx.Window) -> None:
-        super().__init__(parent)
+        super().__init__(parent, style=wx.LB_EXTENDED)
         self._entries: list[AddressEntry] = []
-        self.SetMinSize((-1, 100))
+        self.SetMinSize((280, 120))
 
     def set_entries(self, entries: list[AddressEntry]) -> None:
         self._entries = list(entries)
-        self.SetItemCount(len(self._entries))
-        if self._entries:
-            self.RefreshAll()
+        self.Freeze()
+        try:
+            self.Clear()
+            for entry in self._entries:
+                self.Append(entry.display())
+            if self._entries:
+                self.SetSelection(0)
+        finally:
+            self.Thaw()
 
     def get_entries(self) -> list[AddressEntry]:
         return list(self._entries)
 
-    def selected_index(self) -> int:
-        return self.GetSelection()
+    def selected_indices(self) -> list[int]:
+        return list(self.GetSelections())
 
-    def select_index(self, index: int) -> None:
-        if 0 <= index < len(self._entries):
-            self.SetSelection(index)
-
-    def OnGetItem(self, index: int) -> str:
-        entry = self._entries[index]
-        text = html.escape(entry.display())
-        if entry.spare:
-            colour = spare_entry_css_colour()
-            return f'<span style="color:{colour};font-style:italic">{text}</span>'
-        return text
+    def select_indices(self, indices: list[int]) -> None:
+        self.SetSelection(-1)
+        for index in indices:
+            if 0 <= index < len(self._entries):
+                self.SetSelection(index)
 
 
 class AddressEntryDialog(wx.Dialog):
@@ -105,11 +100,9 @@ class AddressEntryDialog(wx.Dialog):
         title: str,
         entry: AddressEntry | None = None,
         *,
-        default_source: str = "manual",
-        single_family: bool = False,
+        editable_source: bool = True,
     ) -> None:
         super().__init__(parent, title=title, size=(420, 220))
-        self._single_family = single_family
         panel = wx.Panel(self)
         panel.SetFont(ui_font(10))
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -130,7 +123,7 @@ class AddressEntryDialog(wx.Dialog):
 
         source_row = wx.BoxSizer(wx.HORIZONTAL)
         source_row.Add(wx.StaticText(panel, label="Source:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
-        self.source_ctrl = wx.TextCtrl(panel, value=default_source)
+        self.source_ctrl = wx.TextCtrl(panel, value="manual")
         self.source_ctrl.SetFont(ui_font(10))
         source_row.Add(self.source_ctrl, 1, wx.EXPAND)
         sizer.Add(source_row, 0, wx.EXPAND | wx.ALL, 10)
@@ -150,7 +143,9 @@ class AddressEntryDialog(wx.Dialog):
             self.address_ctrl.SetValue(entry.address)
             self.source_ctrl.SetValue(entry.source)
 
-        if single_family and entry is not None:
+        if not editable_source:
+            self.source_ctrl.Disable()
+        if entry is not None and not editable_source:
             self.family_choice.Disable()
 
     def get_entry(self) -> AddressEntry:
@@ -165,24 +160,14 @@ class AddressEntryDialog(wx.Dialog):
 
 
 class AddressListPanel(wx.Panel):
-    def __init__(
-        self,
-        parent: wx.Window,
-        *,
-        default_source: str = "manual",
-        limit_one_per_family: bool = False,
-        trailing: str | None = None,
-    ) -> None:
+    def __init__(self, parent: wx.Window) -> None:
         super().__init__(parent)
-        self._default_source = default_source
-        self._limit_one_per_family = limit_one_per_family
         self._entries: list[AddressEntry] = []
-        self._trailing = trailing
-        self._trailing_buttons: list[wx.Button] = []
+        self._on_changed: Callable[[], None] | None = None
         self.SetFont(ui_font(10))
 
         sizer = wx.BoxSizer(wx.VERTICAL)
-        self.listbox = AddressHtmlListBox(self)
+        self.listbox = AddressListBox(self)
         self.listbox.SetFont(mono_font(10))
         sizer.Add(self.listbox, 1, wx.EXPAND)
 
@@ -192,100 +177,111 @@ class AddressListPanel(wx.Panel):
         self.edit_btn = _icon_button(self, wx.ART_EDIT, "Edit", btn_height)
         self.delete_btn = _icon_button(self, wx.ART_DELETE, "Delete", btn_height)
         for btn in (self.add_btn, self.edit_btn, self.delete_btn):
-            btn_row.Add(btn, 0, _btn_row_flags(), 2)
+            btn_row.Add(btn, 0, _btn_row_flags(), BTN_ROW_BORDER)
 
-        if trailing == "diagnose":
-            btn_row.AddStretchSpacer(1)
-            self.diagnose_btn = _icon_action_button(self, wx.ART_FIND, "Diagnose", btn_height)
-            self._trailing_buttons.append(self.diagnose_btn)
-            btn_row.Add(self.diagnose_btn, 0, _btn_row_flags(), 2)
-        elif trailing == "renew_apply":
-            self.renew_btn = _icon_action_button(self, wx.ART_REDO, "Renew", btn_height)
-            self.apply_btn = _icon_action_button(self, wx.ART_TICK_MARK, "Apply", btn_height)
-            for btn in (self.renew_btn, self.apply_btn):
-                self._trailing_buttons.append(btn)
-            btn_row.Add(self.renew_btn, 0, _btn_row_flags(), 2)
-            btn_row.AddStretchSpacer(1)
-            btn_row.Add(self.apply_btn, 0, _btn_row_flags(), 2)
+        btn_row.AddStretchSpacer(1)
+        self.diagnose_btn = _icon_button(self, wx.ART_FIND, "Diagnose", btn_height)
+        self.renew_btn = _icon_button(self, wx.ART_REDO, "Renew", btn_height)
+        self.apply_btn = _icon_button(self, wx.ART_TICK_MARK, "Apply", btn_height)
+        for btn in (self.diagnose_btn, self.renew_btn, self.apply_btn):
+            btn_row.Add(btn, 0, _btn_row_flags(), BTN_ROW_BORDER)
 
         sizer.Add(btn_row, 0, wx.EXPAND | wx.TOP, 4)
+        self.SetMinSize((_button_row_min_width(6), -1))
         self.SetSizer(sizer)
 
         self.add_btn.Bind(wx.EVT_BUTTON, self._on_add)
         self.edit_btn.Bind(wx.EVT_BUTTON, self._on_edit)
         self.delete_btn.Bind(wx.EVT_BUTTON, self._on_delete)
+        self.listbox.Bind(wx.EVT_LISTBOX, self._on_selection_changed)
 
-    def trailing_buttons(self) -> list[wx.Button]:
-        return list(self._trailing_buttons)
+    def set_on_changed(self, callback: Callable[[], None] | None) -> None:
+        self._on_changed = callback
+
+    def _emit_changed(self) -> None:
+        if self._on_changed is not None:
+            self._on_changed()
+
+    def merge_entries(
+        self,
+        incoming: list[AddressEntry],
+        *,
+        replace_sources: frozenset[str] | None = None,
+    ) -> None:
+        from chaddr.address import merge_address_entries
+
+        self._entries = merge_address_entries(
+            self._entries,
+            incoming,
+            replace_sources=replace_sources,
+            distinct_sources=True,
+        )
+        self._refresh_list()
 
     def set_entries(self, entries: list[AddressEntry]) -> None:
         self._entries = list(entries)
         self.listbox.set_entries(self._entries)
+        self._emit_changed()
 
     def get_entries(self) -> list[AddressEntry]:
         return self.listbox.get_entries()
 
-    def get_address_set(self) -> AddressSet:
-        return address_set_from_entries(self._entries)
+    def get_selected_entries(self) -> list[AddressEntry]:
+        return [self._entries[i] for i in self.listbox.selected_indices() if 0 <= i < len(self._entries)]
 
-    def set_address_set(self, addresses: AddressSet, source: str) -> None:
-        self.set_entries(AddressEntry.from_address_set(addresses, source))
+    def get_apply_address_set(self) -> AddressSet:
+        return address_set_from_selection(self._entries, self.listbox.selected_indices())
 
-    def set_enabled(self, enabled: bool) -> None:
-        self.listbox.Enable(enabled)
-        self.add_btn.Enable(enabled)
-        self.edit_btn.Enable(enabled)
-        self.delete_btn.Enable(enabled)
+    def has_valid_apply_selection(self) -> bool:
+        try:
+            address_set_from_selection(self._entries, self.listbox.selected_indices())
+        except ValueError:
+            return False
+        return True
 
-    def set_trailing_enabled(self, enabled: bool) -> None:
-        for btn in self._trailing_buttons:
-            btn.Enable(enabled)
-
-    def _refresh_list(self) -> None:
+    def _refresh_list(self, *, preserve_selection: bool = True) -> None:
+        selected = self.listbox.selected_indices() if preserve_selection else []
         self.listbox.set_entries(self._entries)
+        if selected:
+            self.listbox.select_indices(selected)
 
-    def _selected_index(self) -> int:
-        return self.listbox.selected_index()
+    def _on_selection_changed(self, _evt) -> None:
+        self._emit_changed()
 
     def _on_add(self, _evt) -> None:
-        dialog = AddressEntryDialog(
-            self,
-            "Add address",
-            default_source=self._default_source,
-        )
+        dialog = AddressEntryDialog(self, "Add address", editable_source=False)
         if dialog.ShowModal() != wx.ID_OK:
             dialog.Destroy()
             return
         try:
             entry = dialog.get_entry()
+            entry.source = "manual"
         except ValueError as exc:
             dialog.Destroy()
             wx.MessageBox(str(exc), "Invalid address", wx.OK | wx.ICON_WARNING)
             return
         dialog.Destroy()
-        if self._limit_one_per_family and any(item.family == entry.family for item in self._entries):
-            wx.MessageBox(
-                f"A {entry.family} entry already exists; edit or delete it before adding another.",
-                "Duplicate family",
-                wx.OK | wx.ICON_WARNING,
-            )
+        if any(item.family == entry.family and item.address == entry.address for item in self._entries):
+            wx.MessageBox("That address is already in the list.", "Duplicate", wx.OK | wx.ICON_WARNING)
             return
         self._entries.append(entry)
-        self._refresh_list()
-        self.listbox.select_index(len(self._entries) - 1)
+        self._refresh_list(preserve_selection=False)
+        self.listbox.select_indices([len(self._entries) - 1])
+        self._emit_changed()
 
     def _on_edit(self, _evt) -> None:
-        index = self._selected_index()
-        if index == wx.NOT_FOUND:
-            wx.MessageBox("Select an address first.", "No selection", wx.OK | wx.ICON_INFORMATION)
+        indices = self.listbox.selected_indices()
+        if len(indices) != 1:
+            wx.MessageBox("Select exactly one address to edit.", "Selection", wx.OK | wx.ICON_INFORMATION)
             return
+        index = indices[0]
         current = self._entries[index]
+        editable = current.source == "manual"
         dialog = AddressEntryDialog(
             self,
             "Edit address",
             entry=current,
-            default_source=self._default_source,
-            single_family=self._limit_one_per_family,
+            editable_source=editable,
         )
         if dialog.ShowModal() != wx.ID_OK:
             dialog.Destroy()
@@ -297,29 +293,28 @@ class AddressListPanel(wx.Panel):
             wx.MessageBox(str(exc), "Invalid address", wx.OK | wx.ICON_WARNING)
             return
         dialog.Destroy()
-        if self._limit_one_per_family and entry.family != current.family:
-            wx.MessageBox("The address family cannot be changed.", "Invalid edit", wx.OK | wx.ICON_WARNING)
+        if not editable:
+            entry = AddressEntry(current.family, current.address, current.source)
+        if any(
+            idx != index and item.family == entry.family and item.address == entry.address
+            for idx, item in enumerate(self._entries)
+        ):
+            wx.MessageBox("That address is already in the list.", "Duplicate", wx.OK | wx.ICON_WARNING)
             return
-        if self._limit_one_per_family:
-            for idx, item in enumerate(self._entries):
-                if idx != index and item.family == entry.family:
-                    wx.MessageBox(
-                        f"A {entry.family} entry already exists.",
-                        "Duplicate family",
-                        wx.OK | wx.ICON_WARNING,
-                    )
-                    return
-        entry.spare = current.spare
         self._entries[index] = entry
         self._refresh_list()
-        self.listbox.select_index(index)
+        self.listbox.select_indices([index])
+        self._emit_changed()
 
     def _on_delete(self, _evt) -> None:
-        index = self._selected_index()
-        if index == wx.NOT_FOUND:
-            wx.MessageBox("Select an address first.", "No selection", wx.OK | wx.ICON_INFORMATION)
+        indices = sorted(self.listbox.selected_indices(), reverse=True)
+        if not indices:
+            wx.MessageBox("Select at least one address to delete.", "Selection", wx.OK | wx.ICON_INFORMATION)
             return
-        del self._entries[index]
-        self._refresh_list()
+        for index in indices:
+            if 0 <= index < len(self._entries):
+                del self._entries[index]
+        self._refresh_list(preserve_selection=False)
         if self._entries:
-            self.listbox.select_index(min(index, len(self._entries) - 1))
+            self.listbox.select_indices([min(indices[0], len(self._entries) - 1)])
+        self._emit_changed()
