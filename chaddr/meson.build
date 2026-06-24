@@ -17,6 +17,7 @@ chaddr_py_sources = files(
   'gui/address_panel.py',
   'gui/app.py',
   'gui/diagnostics_format.py',
+  'gui/editor.py',
   'gui/highlighter.py',
   'gui/theme.py',
   'types/__init__.py',
@@ -25,6 +26,7 @@ chaddr_py_sources = files(
   'types/base.py',
   'types/bind_db.py',
   'types/hosts_file.py',
+  'types/plain_file.py',
   'types/registered_nameserver.py',
 )
 
