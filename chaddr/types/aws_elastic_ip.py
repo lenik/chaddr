@@ -146,6 +146,64 @@ class AwsElasticIpHandler(AddressTypeHandler):
         ok = all(item.ok for item in items)
         return DiagnoseResult(self.type_name, "ready" if ok else "issues found", ok, items, addresses)
 
+    def _effective_spare(self):
+        from chaddr.address import SpareFromAddresses
+
+        if self._spare_from_addresses and not self._spare_from_addresses.is_empty():
+            return self._spare_from_addresses
+        if self._source_addresses and not self._source_addresses.is_empty():
+            return SpareFromAddresses.from_address_sets(self._source_addresses)
+        return SpareFromAddresses()
+
+    def _reallocate_release_candidates(self, instance_public_ip: str) -> set[str]:
+        candidates: set[str] = set()
+        if is_ipv4(instance_public_ip):
+            candidates.add(instance_public_ip)
+        for ip in self._effective_spare().ipv4:
+            if is_ipv4(ip):
+                candidates.add(ip)
+        return candidates
+
+    def _release_owned_elastic_ips(self, ec2, candidates: set[str]) -> int:
+        self.report_progress(0.08, "Listing Elastic IPs in region")
+        all_addresses = ec2.describe_addresses().get("Addresses", [])
+        matching = [item for item in all_addresses if item.get("PublicIp") in candidates]
+        if not matching:
+            self.logger.info(
+                "No owned Elastic IPs match %d candidate address(es): %s",
+                len(candidates),
+                ", ".join(sorted(candidates)) or "(none)",
+            )
+            return 0
+
+        released = 0
+        total = len(matching)
+        for index, addr in enumerate(matching):
+            public_ip = addr.get("PublicIp", "")
+            alloc_id = addr.get("AllocationId")
+            association_id = addr.get("AssociationId")
+            fraction = 0.1 + 0.4 * (index / max(total, 1))
+
+            if association_id:
+                self.report_progress(fraction, f"Disassociating Elastic IP {public_ip}")
+                try:
+                    ec2.disassociate_address(AssociationId=association_id)
+                except Exception as exc:
+                    self.logger.warning("Disassociate %s failed: %s", public_ip, exc)
+
+            if alloc_id:
+                self.report_progress(
+                    min(fraction + 0.05, 0.49),
+                    f"Releasing Elastic IP {public_ip} ({alloc_id})",
+                )
+                try:
+                    ec2.release_address(AllocationId=alloc_id)
+                    released += 1
+                    self.logger.info("Released Elastic IP %s (%s)", public_ip, alloc_id)
+                except Exception as exc:
+                    self.logger.warning("Release %s failed: %s", public_ip, exc)
+        return released
+
     def reallocate(self) -> ReallocateResult:
         region = self._resolve_region()
         if not region:
@@ -160,21 +218,19 @@ class AwsElasticIpHandler(AddressTypeHandler):
         private_ip = instance["private_ip"]
         old_ip = instance["public_ip"]
 
-        self.report_progress(0.1, f"Disassociating Elastic IP {old_ip} from {instance_id}")
-        try:
-            ec2.disassociate_address(PublicIp=old_ip)
-        except Exception as exc:
-            self.logger.warning("Disassociate failed or already disassociated: %s", exc)
-
-        self.report_progress(0.25, f"Looking up allocation id for {old_ip}")
-        alloc_id = None
-        addresses = ec2.describe_addresses(PublicIps=[old_ip]).get("Addresses", [])
-        if addresses:
-            alloc_id = addresses[0].get("AllocationId")
-
-        if alloc_id:
-            self.report_progress(0.4, f"Releasing Elastic IP {old_ip} ({alloc_id})")
-            ec2.release_address(AllocationId=alloc_id)
+        candidates = self._reallocate_release_candidates(old_ip)
+        self.logger.info(
+            "Reallocate release candidates: %s",
+            ", ".join(sorted(candidates)) or "(none)",
+        )
+        released = self._release_owned_elastic_ips(ec2, candidates)
+        if released:
+            self.report_progress(0.5, f"Released {released} Elastic IP(s)")
+        else:
+            self.report_progress(
+                0.2,
+                "No owned Elastic IPs to release among current address candidates; allocating new address",
+            )
 
         self.report_progress(0.6, f"Allocating new Elastic IP in {region}")
         alloc = ec2.allocate_address(Domain="vpc")
