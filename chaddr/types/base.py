@@ -1,0 +1,117 @@
+"""Base classes for address type handlers."""
+
+from __future__ import annotations
+
+import logging
+import re
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Any, Callable
+
+from chaddr.address import AddressSet, SpareFromAddresses, is_ipv4, is_ipv6
+
+__all__ = ["is_ipv4", "is_ipv6", "AddressSet"]
+
+
+ProgressCallback = Callable[[float, str], None]
+
+
+@dataclass
+class DiagnoseItem:
+    label: str
+    ok: bool
+    detail: str
+    guidance: str = ""
+
+
+@dataclass
+class DiagnoseResult:
+    type_name: str
+    summary: str
+    ok: bool
+    items: list[DiagnoseItem] = field(default_factory=list)
+    addresses: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ReallocateResult:
+    ok: bool
+    old_ip: str | None = None
+    new_ip: str | None = None
+    message: str = ""
+
+
+IPV4_RE = re.compile(
+    r"\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\b"
+)
+
+
+class AddressTypeHandler(ABC):
+    type_name: str = ""
+    supports_manual_edit: bool = False
+    supports_reallocate: bool = False
+
+    def __init__(
+        self,
+        config: dict[str, str],
+        options: dict[str, Any],
+        proxy: str | None,
+        logger: logging.Logger,
+    ) -> None:
+        self.config = config
+        self.options = options
+        self.proxy = proxy
+        self.logger = logger
+        self._progress: ProgressCallback | None = None
+        self._source_addresses: AddressSet | None = None
+        self._spare_from_addresses: SpareFromAddresses | None = None
+        self._profile_name: str | None = None
+        self._profile_path: "Path | None" = None
+
+    def set_profile_context(self, profile_name: str, profile_path) -> None:
+        self._profile_name = profile_name
+        self._profile_path = profile_path
+
+    def set_source_addresses(self, source: AddressSet | None) -> None:
+        self._source_addresses = source
+
+    def set_spare_from_addresses(self, spare: SpareFromAddresses | None) -> None:
+        self._spare_from_addresses = spare
+
+    def set_progress_callback(self, callback: ProgressCallback | None) -> None:
+        self._progress = callback
+
+    def report_progress(self, fraction: float, message: str) -> None:
+        self.logger.info(message)
+        if self._progress:
+            self._progress(max(0.0, min(1.0, fraction)), message)
+
+    @abstractmethod
+    def diagnose(self) -> DiagnoseResult:
+        raise NotImplementedError
+
+    def apply_manual(self, old_ip: str, new_ip: str) -> bool:
+        raise NotImplementedError(f"{self.type_name} does not support manual edit")
+
+    def apply_address_map(self, old: AddressSet, new: AddressSet) -> bool:
+        changed = False
+        if old.ipv4 and new.ipv4 and old.ipv4 != new.ipv4:
+            if self.apply_manual(old.ipv4, new.ipv4):
+                changed = True
+        if old.ipv6 and new.ipv6 and old.ipv6 != new.ipv6:
+            if self.apply_manual(old.ipv6, new.ipv6):
+                changed = True
+        return changed
+
+    def reallocate(self) -> ReallocateResult:
+        raise NotImplementedError(f"{self.type_name} does not support reallocate")
+
+    def update_ip(self, old_ip: str, new_ip: str) -> bool:
+        if not self.supports_manual_edit:
+            return True
+        return self.apply_manual(old_ip, new_ip)
+
+    def update_address_map(self, old: AddressSet, new: AddressSet) -> bool:
+        if not self.supports_manual_edit:
+            return True
+        return self.apply_address_map(old, new)

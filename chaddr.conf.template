@@ -1,0 +1,21 @@
+{
+  "_readme": "Copy to chaddr.conf. client_ip empty = auto-detect; detected IP is saved with client_ip_expire (1h). namecheap_whitelist: disabled (default) = no portal whitelist; portal = auto-update on API failure.",
+  "_usage": "chaddr -c /path/to/chaddr.conf [profile...]",
+
+  "proxy": "",
+
+  "aws_access_key_id": "",
+  "aws_secret_access_key": "",
+
+  "namecheap_api_key": "",
+  "namecheap_username": "",
+  "namecheap_password": "",
+  "namecheap_whitelist": "disabled",
+  "namecheap_whitelist_name": "chaddr",
+  "namecheap_sandbox": false,
+  "client_ip": "",
+  "client_ip_expire": "",
+
+  "aliyun_access_key_id": "",
+  "aliyun_access_key_secret": ""
+}
