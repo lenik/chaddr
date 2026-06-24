@@ -120,6 +120,8 @@ def address_set_from_entries(entries: list[AddressEntry]) -> AddressSet:
 def spare_sets_from_entries(entries: list[AddressEntry]) -> list[AddressSet]:
     sets: list[AddressSet] = []
     for entry in entries:
+        if not entry.spare:
+            continue
         if entry.family == "IPv4":
             sets.append(AddressSet(ipv4=entry.address))
         else:

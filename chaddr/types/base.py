@@ -65,6 +65,7 @@ class AddressTypeHandler(ABC):
         self._progress: ProgressCallback | None = None
         self._source_addresses: AddressSet | None = None
         self._spare_from_addresses: SpareFromAddresses | None = None
+        self._profile_spare_for_apply: SpareFromAddresses | None = None
         self._profile_name: str | None = None
         self._profile_path: "Path | None" = None
 
@@ -77,6 +78,17 @@ class AddressTypeHandler(ABC):
 
     def set_spare_from_addresses(self, spare: SpareFromAddresses | None) -> None:
         self._spare_from_addresses = spare
+
+    def set_profile_spare_for_apply(self, spare: SpareFromAddresses | None) -> None:
+        """Profile-scoped spare for Apply preview (not grown during diagnose)."""
+        self._profile_spare_for_apply = spare
+
+    def _apply_match_spare(self) -> SpareFromAddresses:
+        if self._profile_spare_for_apply is not None and not self._profile_spare_for_apply.is_empty():
+            return self._profile_spare_for_apply
+        if self._source_addresses and not self._source_addresses.is_empty():
+            return SpareFromAddresses.from_address_sets(self._source_addresses)
+        return SpareFromAddresses()
 
     def set_progress_callback(self, callback: ProgressCallback | None) -> None:
         self._progress = callback
