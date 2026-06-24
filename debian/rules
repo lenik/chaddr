@@ -1,0 +1,15 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export CHADDR_VERSION := $(shell "$(CURDIR)/scripts/git-version" 2>/dev/null || echo 0.0.0)
+
+%:
+	dh $@ --buildsystem=meson
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		-Dprofile_dir=/usr/share/chaddr/profile \
+		-Ddoc_dir=/usr/share/doc/chaddr/examples
+
+override_dh_auto_test:
+	@:

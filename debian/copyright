@@ -1,0 +1,29 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: chaddr
+Source: https://github.com/lenik/chaddr
+
+Files: *
+Copyright: 2026 Lenik <zephyr@bodz.net>
+License: AGPL-3+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU Affero General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
+ .
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU Affero General Public License for more details.
+ .
+ On Debian systems, the full text of the GNU Affero General Public License
+ version 3 can be found in `/usr/share/common-licenses/AGPL-3`.
+ .
+ The upstream `LICENSE` file includes supplemental terms that prohibit using
+ this software or its outputs to train AI/ML systems without permission from
+ the copyright holder. If those terms are unenforceable, they are severed and
+ the AGPL continues to apply.
+
+Files: debian/*
+Copyright: 2026 Lenik <lenik@bodz.net>
+License: AGPL-3+
+ same as upstream

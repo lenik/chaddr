@@ -1,0 +1,30 @@
+chaddr (1.0.0) testing; urgency=medium
+
+  * Initial public release under AGPL-3.0-or-later (see LICENSE for supplemental
+    anti-AI-training terms)
+  * CLI: --diagnose, --refetch, and manual --apply/--old-ip for scripting
+  * Profiles: declarative multi-resource definitions under
+    ~/.config/chaddr/profile/ (override with CHADDR_PROFILE_DIR)
+  * Profile header fields: description, version, and addr-history (comma-
+    separated historical IPv4/IPv6, equivalent to --old-ip for hosts/BIND
+    matching)
+  * Profile syntax: shell-style line continuation with trailing backslash
+  * Resource types: AWS/Aliyun Elastic IP (diagnose, renew), Namecheap
+    registered nameserver, hosts file, and BIND zone database (diagnose, apply)
+  * from: resolve block for DNS-based current address discovery
+  * GUI: wxWidgets profile editor with per-profile Logging and Diagnostics
+    notebook tabs, status indicators (busy/error/ok), parallel diagnose,
+    sequential renew, hosts apply preview, and Ctrl+E to open profiles in the
+    system text editor
+  * GUI: preserve log/diagnostic tab content for profiles not in the current
+    run; only reset tabs for profiles being diagnosed or renewed/applied
+  * GUI: isolate spare address sets per profile on multi-profile diagnose
+  * Example profile shipped as profile/example
+  * Man pages: chaddr(1) and chaddr-profile(5); version substituted at build
+    time from git describe via Meson
+  * Meson build/install with generated buildconfig install paths, launcher
+    script, bash completion, and optional profile/doc install dirs
+  * Debian packaging: /usr/bin/chaddr, man pages, bash completion, example
+    profiles under /usr/share/chaddr/profile/
+
+ -- Lenik (谢继雷) <lenik@bodz.net>  Wed, 25 Jun 2026 12:00:00 +0000

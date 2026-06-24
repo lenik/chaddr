@@ -1,0 +1,29 @@
+Source: chaddr
+Section: net
+Priority: optional
+Maintainer: Lenik (谢继雷) <lenik@bodz.net>
+Build-Depends: debhelper-compat (= 13),
+               meson,
+               ninja-build,
+               python3-all,
+               bash-completion
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: chaddr
+Architecture: all
+Depends: python3 (>= 3.11),
+         python3-boto3,
+         python3-requests,
+         python3-socks,
+         python3-wxgtk4.0,
+         policykit-1 | gksudo | kde-cli-tools,
+         ${misc:Depends}
+Recommends: bash-completion
+Description: change or reallocate profile-managed IP addresses
+ chaddr coordinates updates across AWS/Aliyun Elastic IP, Namecheap
+ registered nameservers, hosts files, and BIND zone databases from
+ declarative profile files. It provides a wxWidgets GUI and a scriptable CLI.
+ .
+ Protected file updates from the GUI may prompt for elevation through
+ pkexec, gksudo, or kdesudo.

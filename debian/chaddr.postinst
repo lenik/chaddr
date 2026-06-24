@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # Installed by Meson: /usr/bin/chaddr, python module, profiles, completion.
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0
