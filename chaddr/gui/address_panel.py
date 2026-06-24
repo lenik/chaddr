@@ -36,21 +36,33 @@ def _scaled_art_bitmap(art_id: str, size: int) -> wx.Bitmap:
     return wx.Bitmap(scaled)
 
 
+GTK_BUTTON_MARGIN = 14  # GTK ~7px padding per side for bitmap buttons
+
+
+def _btn_row_flags() -> int:
+    """Sizer flags that honour button minimum size (wx version portable)."""
+    if hasattr(wx, "FIX_MINSIZE"):
+        return wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.FIX_MINSIZE
+    return wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ADJUST_MINSIZE
+
+
 def _icon_button(parent: wx.Window, art_id: str, tooltip: str, height: int) -> wx.Button:
-    icon_size = max(18, height - 10)
-    btn = wx.Button(parent, wx.ID_ANY, "", size=(height, height))
-    btn.SetBitmap(_scaled_art_bitmap(art_id, icon_size))
+    side = max(height, 36)
+    icon_size = max(16, side - GTK_BUTTON_MARGIN)
+    bitmap = _scaled_art_bitmap(art_id, icon_size)
+    btn = wx.BitmapButton(parent, wx.ID_ANY, bitmap)
+    btn.SetMinSize((side, side))
     btn.SetToolTip(tooltip)
     return btn
 
 
 def _icon_action_button(parent: wx.Window, art_id: str, label: str, height: int) -> wx.Button:
-    icon_size = max(16, height - 12)
+    icon_size = max(16, height - GTK_BUTTON_MARGIN)
     btn = wx.Button(parent, label=label)
     btn.SetFont(ui_font(10))
     btn.SetBitmap(_scaled_art_bitmap(art_id, icon_size))
     best = btn.GetBestSize()
-    btn.SetMinSize((max(best.GetWidth(), 80), height))
+    btn.SetMinSize((max(best.GetWidth(), icon_size + GTK_BUTTON_MARGIN + 48), max(height, 32)))
     btn.SetToolTip(label)
     return btn
 
@@ -180,21 +192,21 @@ class AddressListPanel(wx.Panel):
         self.edit_btn = _icon_button(self, wx.ART_EDIT, "Edit", btn_height)
         self.delete_btn = _icon_button(self, wx.ART_DELETE, "Delete", btn_height)
         for btn in (self.add_btn, self.edit_btn, self.delete_btn):
-            btn_row.Add(btn, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 2)
+            btn_row.Add(btn, 0, _btn_row_flags(), 2)
 
         if trailing == "diagnose":
             btn_row.AddStretchSpacer(1)
             self.diagnose_btn = _icon_action_button(self, wx.ART_FIND, "Diagnose", btn_height)
             self._trailing_buttons.append(self.diagnose_btn)
-            btn_row.Add(self.diagnose_btn, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 2)
+            btn_row.Add(self.diagnose_btn, 0, _btn_row_flags(), 2)
         elif trailing == "renew_apply":
             self.renew_btn = _icon_action_button(self, wx.ART_REDO, "Renew", btn_height)
             self.apply_btn = _icon_action_button(self, wx.ART_TICK_MARK, "Apply", btn_height)
             for btn in (self.renew_btn, self.apply_btn):
                 self._trailing_buttons.append(btn)
-            btn_row.Add(self.renew_btn, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 2)
+            btn_row.Add(self.renew_btn, 0, _btn_row_flags(), 2)
             btn_row.AddStretchSpacer(1)
-            btn_row.Add(self.apply_btn, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 2)
+            btn_row.Add(self.apply_btn, 0, _btn_row_flags(), 2)
 
         sizer.Add(btn_row, 0, wx.EXPAND | wx.TOP, 4)
         self.SetSizer(sizer)

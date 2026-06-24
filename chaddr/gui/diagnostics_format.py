@@ -47,10 +47,14 @@ def _apply_lines(diag: DiagnoseResult) -> list[str]:
         if targets:
             return [header + ":", *[f"> {line}" for line in targets]]
         return [header]
-    if type_name == "bind db":
+    if type_name in ("zone file", "bind db"):
         path = diag_item_detail(diag, "path")
         target = path or "zone file"
-        return [f"  [Apply] Replaces IP addresses in BIND zone file {target}"]
+        targets = _apply_target_lines(diag)
+        header = f"  [Apply] Replaces IP addresses in BIND zone file {target}"
+        if targets:
+            return [header + ":", *[f"> {line}" for line in targets]]
+        return [header]
     if type_name == "registered nameserver":
         nameservers = diag_item_detail(diag, "nameservers")
         if nameservers:

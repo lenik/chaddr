@@ -36,6 +36,10 @@ def setup_styles(ctrl) -> None:
     ctrl.StyleSetBold(STYLE_HEADER, True)
     ctrl.StyleSetForeground(STYLE_ACTION, wx_colour(140, 60, 180))
     ctrl.StyleSetForeground(STYLE_PREVIEW, wx_colour(120, 120, 120))
+    if hasattr(ctrl, "SetCaretWidth"):
+        ctrl.SetCaretWidth(0)
+    if hasattr(ctrl, "SetCaretLineVisible"):
+        ctrl.SetCaretLineVisible(False)
 
 
 def wx_colour(r: int, g: int, b: int):
@@ -76,42 +80,72 @@ def style_for_line(line: str) -> int:
     return STYLE_DEFAULT
 
 
+def _configure_log_stc(ctrl) -> None:
+    """Read-only log pane: hide caret and avoid focus churn on append."""
+    if stc is None or not hasattr(ctrl, "SetReadOnly"):
+        return
+    ctrl.SetReadOnly(True)
+    ctrl.SetMarginWidth(0, 0)
+    ctrl.SetMarginWidth(1, 0)
+    ctrl.SetMarginWidth(2, 0)
+    ctrl.SetCaretWidth(0)
+    ctrl.SetCaretLineVisible(False)
+    setup_styles(ctrl)
+
+
 def append_line(ctrl, line: str, syntax_highlight: bool) -> None:
     text = line.rstrip("\n") + "\n"
-    readonly = getattr(ctrl, "GetReadOnly", lambda: False)()
-    if readonly and hasattr(ctrl, "SetReadOnly"):
-        ctrl.SetReadOnly(False)
+    is_stc = stc is not None and hasattr(ctrl, "StartStyling")
+    readonly = is_stc and ctrl.GetReadOnly()
 
-    if stc is None or not syntax_highlight or not hasattr(ctrl, "StartStyling"):
-        ctrl.AppendText(text)
-    else:
-        start = ctrl.GetLength()
-        ctrl.AppendText(text)
-        ctrl.StartStyling(start)
-        ctrl.SetStyling(len(text), style_for_line(line))
+    if is_stc:
+        ctrl.Freeze()
+    try:
+        if readonly:
+            ctrl.SetReadOnly(False)
 
-    if readonly and hasattr(ctrl, "SetReadOnly"):
-        ctrl.SetReadOnly(True)
+        if not is_stc or not syntax_highlight:
+            ctrl.AppendText(text)
+        else:
+            start = ctrl.GetLength()
+            ctrl.AppendText(text)
+            ctrl.StartStyling(start)
+            ctrl.SetStyling(len(text), style_for_line(line))
 
-    _scroll_to_end(ctrl)
+        if readonly:
+            ctrl.SetReadOnly(True)
+
+        _scroll_to_end(ctrl)
+    finally:
+        if is_stc:
+            ctrl.Thaw()
 
 
 def clear_text(ctrl) -> None:
-    readonly = getattr(ctrl, "GetReadOnly", lambda: False)()
-    if readonly and hasattr(ctrl, "SetReadOnly"):
-        ctrl.SetReadOnly(False)
-    if hasattr(ctrl, "ClearAll"):
-        ctrl.ClearAll()
-    else:
-        ctrl.Clear()
-    if readonly and hasattr(ctrl, "SetReadOnly"):
-        ctrl.SetReadOnly(True)
+    is_stc = stc is not None and hasattr(ctrl, "ClearAll")
+    readonly = is_stc and getattr(ctrl, "GetReadOnly", lambda: False)()
+    if is_stc:
+        ctrl.Freeze()
+    try:
+        if readonly:
+            ctrl.SetReadOnly(False)
+        if hasattr(ctrl, "ClearAll"):
+            ctrl.ClearAll()
+        else:
+            ctrl.Clear()
+        if readonly:
+            ctrl.SetReadOnly(True)
+    finally:
+        if is_stc:
+            ctrl.Thaw()
 
 
 def _scroll_to_end(ctrl) -> None:
-    if hasattr(ctrl, "GotoPos"):
-        ctrl.GotoPos(ctrl.GetLength())
-    elif hasattr(ctrl, "ShowPosition") and hasattr(ctrl, "GetLastPosition"):
+    """Scroll to the end without moving the caret (GotoPos steals/spams focus on GTK)."""
+    if hasattr(ctrl, "GetLineCount") and hasattr(ctrl, "SetFirstVisibleLine"):
+        ctrl.SetFirstVisibleLine(max(0, ctrl.GetLineCount() - 1))
+        return
+    if hasattr(ctrl, "GetLastPosition") and hasattr(ctrl, "ShowPosition"):
         ctrl.ShowPosition(ctrl.GetLastPosition())
 
 

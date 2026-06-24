@@ -17,12 +17,12 @@ except ImportError:  # pragma: no cover
 
 from chaddr import __version__
 from chaddr.config import CONFIG_FILENAME, load_config, resolve_client_ip, save_config
-from chaddr.address import AddressEntry, AddressSet, is_ipv4, is_ipv6, spare_sets_from_entries
+from chaddr.address import AddressEntry, AddressSet, is_ipv4, is_ipv6
 from chaddr.gui.address_panel import AddressListPanel
 from chaddr.gui.diagnostics_format import mutable_action_lines
 from chaddr.types.hosts_file import APPLY_TARGETS_LABEL
 from chaddr.gui.editor import open_in_system_editor
-from chaddr.gui.highlighter import append_line, clear_text, set_text, setup_styles
+from chaddr.gui.highlighter import append_line, clear_text, set_text, setup_styles, _configure_log_stc
 from chaddr.gui.theme import THEMES, apply_theme, install_default_gui_font, mono_font, ui_font
 from chaddr.orchestrator import (
     ProfileRunResult,
@@ -196,12 +196,8 @@ class PreferencesDialog(wx.Dialog):
 def _make_text_ctrl(parent: wx.Window, min_height: int = 200):
     if stc is not None:
         ctrl = stc.StyledTextCtrl(parent, style=wx.BORDER_SUNKEN)
-        ctrl.SetReadOnly(True)
-        ctrl.SetMarginWidth(0, 0)
-        ctrl.SetMarginWidth(1, 0)
-        ctrl.SetMarginWidth(2, 0)
         ctrl.SetFont(mono_font(10))
-        setup_styles(ctrl)
+        _configure_log_stc(ctrl)
     else:
         ctrl = wx.TextCtrl(parent, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL | wx.BORDER_SUNKEN)
         ctrl.SetFont(mono_font(10))
@@ -289,8 +285,7 @@ class AddressEditFrame(wx.Frame):
         self._build_status_bar()
         self._setup_logging()
         self._load_profile_list(initial_profiles or [])
-        self._seed_old_ip()
-        self._seed_addr_history()
+        wx.CallAfter(self._seed_old_ip)
         self._apply_theme()
         self._update_status_bar()
         self._start_public_ip_fetch()
@@ -479,6 +474,7 @@ class AddressEditFrame(wx.Frame):
         self._log_notebook = wx.Notebook(log_page)
         log_sizer.Add(self._log_notebook, 1, wx.EXPAND | wx.ALL, 6)
         log_page.SetSizer(log_sizer)
+        self._log_notebook_placeholder = self._add_notebook_placeholder(self._log_notebook)
 
         diag_page = wx.Panel(self._notebook)
         diag_page.SetFont(self._ui_font)
@@ -486,6 +482,7 @@ class AddressEditFrame(wx.Frame):
         self._diag_notebook = wx.Notebook(diag_page)
         diag_sizer.Add(self._diag_notebook, 1, wx.EXPAND | wx.ALL, 6)
         diag_page.SetSizer(diag_sizer)
+        self._diag_notebook_placeholder = self._add_notebook_placeholder(self._diag_notebook)
 
         self._notebook.AddPage(log_page, "Logging")
         self._notebook.AddPage(diag_page, "Diagnostics")
@@ -680,6 +677,18 @@ class AddressEditFrame(wx.Frame):
                 total += 1
         return total
 
+    def _strip_addr_history(self, entries: list[AddressEntry]) -> list[AddressEntry]:
+        return [entry for entry in entries if entry.source != "addr-history"]
+
+    def _profile_addr_history_entries(self, profile_name: str) -> list[AddressEntry]:
+        profile = load_profile(profile_name)
+        entries: list[AddressEntry] = []
+        for addr_set in profile.addr_history_sets():
+            ip = addr_set.ipv4 or addr_set.ipv6
+            if ip:
+                entries.append(AddressEntry.from_history_ip(ip))
+        return entries
+
     def _seed_old_ip(self) -> None:
         old_ip = (self._old_ip or "").strip()
         if not old_ip:
@@ -695,20 +704,13 @@ class AddressEditFrame(wx.Frame):
 
     def _seed_addr_history(self) -> None:
         selected = self._selected_profiles()
-        if len(selected) != 1:
-            return
-        profile = load_profile(selected[0])
-        history_sets = profile.addr_history_sets()
-        if not history_sets:
-            return
-        entries = list(self.current_address_panel.get_entries())
-        known = {entry.address for entry in entries}
-        for addr_set in history_sets:
-            ip = addr_set.ipv4 or addr_set.ipv6
-            if not ip or ip in known:
-                continue
-            entries.append(AddressEntry.from_history_ip(ip))
-            known.add(ip)
+        entries = self._strip_addr_history(list(self.current_address_panel.get_entries()))
+        if len(selected) == 1:
+            known = {entry.address for entry in entries}
+            for entry in self._profile_addr_history_entries(selected[0]):
+                if entry.address not in known:
+                    entries.append(entry)
+                    known.add(entry.address)
         self.current_address_panel.set_entries(entries)
 
     def _spare_entries(self) -> list[AddressEntry]:
@@ -716,12 +718,24 @@ class AddressEditFrame(wx.Frame):
 
     def _merge_current_entries(self, primary: list[AddressEntry]) -> list[AddressEntry]:
         primary_ips = {entry.address for entry in primary}
-        spare = [entry for entry in self._spare_entries() if entry.address not in primary_ips]
+        spare = [
+            entry
+            for entry in self._strip_addr_history(self.current_address_panel.get_entries())
+            if entry.spare and entry.address not in primary_ips
+        ]
         for entry in primary:
             entry.spare = False
         for entry in spare:
             entry.spare = True
-        return primary + spare
+        merged = list(primary) + spare
+        selected = self._selected_profiles()
+        if len(selected) == 1:
+            known = {entry.address for entry in merged}
+            for entry in self._profile_addr_history_entries(selected[0]):
+                if entry.address not in known:
+                    entry.spare = True
+                    merged.append(entry)
+        return merged
 
     def _set_current_addresses(self, addresses: AddressSet, source: str = "resolve") -> None:
         primary = AddressEntry.from_address_set(addresses, source)
@@ -737,75 +751,69 @@ class AddressEditFrame(wx.Frame):
                 continue
             entry.spare = True
             merged.append(entry)
-        for entry in self._spare_entries():
-            if entry.address in primary_ips or any(item.address == entry.address for item in merged):
+        for entry in self._strip_addr_history(self.current_address_panel.get_entries()):
+            if not entry.spare or entry.address in primary_ips:
+                continue
+            if any(item.address == entry.address for item in merged):
                 continue
             entry.spare = True
             merged.append(entry)
+        selected = self._selected_profiles()
+        if len(selected) == 1:
+            known = {entry.address for entry in merged}
+            for entry in self._profile_addr_history_entries(selected[0]):
+                if entry.address not in known:
+                    entry.spare = True
+                    merged.append(entry)
         wx.CallAfter(self.current_address_panel.set_entries, merged)
 
     def _get_current_addresses(self) -> AddressSet:
         return self.current_address_panel.get_address_set()
 
-    def _spare_from_sets(self, profile) -> list[AddressSet]:
-        sets = spare_sets_from_entries(self.current_address_panel.get_entries())
+    def _profile_spare_sets(self, profile_name: str) -> list[AddressSet]:
+        """Spare/old-IP sets for one profile (from its file only, not the GUI panel)."""
+        profile = load_profile(profile_name)
+        sets = list(profile.addr_history_sets())
         try:
             sets.append(resolve_profile_addresses(profile))
         except Exception:
             pass
-        return sets
-
-    def _snapshot_spare_from_sets(
-        self,
-        profiles: list[str],
-        *,
-        include_gui_spare: bool,
-    ) -> dict[str, list[AddressSet]]:
-        """Capture spare from-source sets on the GUI thread before background work."""
-        gui_spare = spare_sets_from_entries(self.current_address_panel.get_entries()) if include_gui_spare else []
-
         old_ip = self.cli_options.get("old_ip") or self._old_ip
-        old_ip_sets: list[AddressSet] = []
         if old_ip:
             if is_ipv4(old_ip):
-                old_ip_sets.append(AddressSet(ipv4=old_ip))
+                sets.append(AddressSet(ipv4=old_ip))
             elif is_ipv6(old_ip):
-                old_ip_sets.append(AddressSet(ipv6=old_ip))
+                sets.append(AddressSet(ipv6=old_ip))
+        return sets
 
-        by_name: dict[str, list[AddressSet]] = {}
-        for name in profiles:
-            sets = list(gui_spare)
-            sets.extend(old_ip_sets)
-            profile = load_profile(name)
-            sets.extend(profile.addr_history_sets())
-            try:
-                sets.append(resolve_profile_addresses(profile))
-            except Exception:
-                pass
-            by_name[name] = sets
-        return by_name
+    def _snapshot_spare_from_sets(self, profiles: list[str]) -> dict[str, list[AddressSet]]:
+        """Capture per-profile spare sets on the GUI thread before background work."""
+        return {name: self._profile_spare_sets(name) for name in profiles}
 
     def _get_new_addresses(self) -> AddressSet:
         return self.new_address_panel.get_address_set()
 
     def _refresh_current_from_profile(self) -> None:
         selected = self._selected_profiles()
-        if len(selected) != 1:
-            return
-        profile = load_profile(selected[0])
-        if profile.from_block is None:
-            return
-        try:
-            addresses = resolve_profile_addresses(profile)
-            resolved = AddressEntry.from_address_set(addresses, "resolve")
-            kept = [
-                entry
-                for entry in self.current_address_panel.get_entries()
-                if entry.spare or entry.source != "resolve"
-            ]
-            wx.CallAfter(self.current_address_panel.set_entries, kept + resolved)
-        except Exception as exc:
-            self.logger.warning("Resolve failed: %s", exc)
+
+        def _apply() -> None:
+            if len(selected) == 1:
+                profile = load_profile(selected[0])
+                if profile.from_block is not None:
+                    try:
+                        addresses = resolve_profile_addresses(profile)
+                        resolved = AddressEntry.from_address_set(addresses, "resolve")
+                        kept = [
+                            entry
+                            for entry in self.current_address_panel.get_entries()
+                            if entry.source != "addr-history" and (entry.spare or entry.source != "resolve")
+                        ]
+                        self.current_address_panel.set_entries(kept + resolved)
+                    except Exception as exc:
+                        self.logger.warning("Resolve failed: %s", exc)
+            self._seed_addr_history()
+
+        wx.CallAfter(_apply)
 
     def _setup_logging(self) -> None:
         handler = GuiLogHandler(self._append_log)
@@ -835,6 +843,32 @@ class AddressEditFrame(wx.Frame):
         self._error_count = 0
         self._update_status_bar()
 
+    def _add_notebook_placeholder(self, notebook: wx.Notebook) -> wx.Panel:
+        """GTK cannot layout an empty wx.Notebook; keep a stub page until real output exists."""
+        page = wx.Panel(notebook)
+        page.SetFont(self._ui_font)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        hint = wx.StaticText(
+            page,
+            label="Output appears here after Diagnose, Renew, or Apply.",
+            style=wx.ALIGN_CENTER,
+        )
+        hint.SetFont(self._ui_font)
+        sizer.AddStretchSpacer()
+        sizer.Add(hint, 0, wx.ALIGN_CENTER | wx.LEFT | wx.RIGHT, 12)
+        sizer.AddStretchSpacer()
+        page.SetSizer(sizer)
+        notebook.AddPage(page, " ")
+        return page
+
+    def _drop_notebook_placeholder(self, notebook: wx.Notebook, placeholder: wx.Panel | None) -> None:
+        if placeholder is None:
+            return
+        for index in range(notebook.GetPageCount()):
+            if notebook.GetPage(index) is placeholder:
+                notebook.DeletePage(index)
+                return
+
     def _create_output_tab(self, notebook: wx.Notebook) -> wx.Window:
         page = wx.Panel(notebook)
         page.SetFont(self._ui_font)
@@ -849,6 +883,8 @@ class AddressEditFrame(wx.Frame):
         for name in profile_names:
             ctrl = self._log_ctrls.get(name)
             if ctrl is None:
+                self._drop_notebook_placeholder(self._log_notebook, self._log_notebook_placeholder)
+                self._log_notebook_placeholder = None
                 ctrl = self._create_output_tab(self._log_notebook)
                 self._log_notebook.AddPage(ctrl.GetParent(), name)
                 self._log_ctrls[name] = ctrl
@@ -860,6 +896,8 @@ class AddressEditFrame(wx.Frame):
         for name in profile_names:
             ctrl = self._diag_ctrls.get(name)
             if ctrl is None:
+                self._drop_notebook_placeholder(self._diag_notebook, self._diag_notebook_placeholder)
+                self._diag_notebook_placeholder = None
                 ctrl = self._create_output_tab(self._diag_notebook)
                 self._diag_notebook.AddPage(ctrl.GetParent(), name)
                 self._diag_ctrls[name] = ctrl
@@ -972,7 +1010,6 @@ class AddressEditFrame(wx.Frame):
         self._resource_count = self._count_resources(self._selected_profiles())
         self._refresh_manual_mode()
         self._refresh_current_from_profile()
-        self._seed_addr_history()
         self._update_status_bar()
 
     def _selected_profiles(self) -> list[str]:
@@ -982,7 +1019,6 @@ class AddressEditFrame(wx.Frame):
         self._resource_count = self._count_resources(self._selected_profiles())
         self._refresh_manual_mode()
         self._refresh_current_from_profile()
-        self._seed_addr_history()
         self._update_status_bar()
 
     def _refresh_manual_mode(self) -> None:
@@ -1046,13 +1082,14 @@ class AddressEditFrame(wx.Frame):
         wx.CallAfter(self._show_progress)
         self._set_action(f"Running {label}...")
         if label == "diagnose":
-            self._prepare_output_panes(diagnostics=True, logging=True)
             self._prepare_output_tabs(profiles, diagnostics=True)
+            self._prepare_output_panes(diagnostics=True, logging=True)
+            self._seed_addr_history()
             for name in profiles:
                 self._set_profile_status(name, STATUS_BUSY)
         elif label in ("renew", "apply"):
-            self._prepare_output_panes(diagnostics=False, logging=True)
             self._ensure_log_tabs(profiles, reset=True)
+            self._prepare_output_panes(diagnostics=False, logging=True)
             for name in profiles:
                 self._set_profile_status(name, STATUS_BUSY)
         else:
@@ -1061,8 +1098,7 @@ class AddressEditFrame(wx.Frame):
             with ProfileLogContext(name):
                 self.logger.info("=== %s: %s ===", label, name)
 
-        include_gui_spare = not (label == "diagnose" and len(profiles) > 1)
-        spare_by_profile = self._snapshot_spare_from_sets(profiles, include_gui_spare=include_gui_spare)
+        spare_by_profile = self._snapshot_spare_from_sets(profiles)
 
         def worker() -> None:
             try:
@@ -1156,7 +1192,7 @@ class AddressEditFrame(wx.Frame):
             lines.append(f"  [{mark}] {item.label}: {item.detail}")
             if not item.ok and item.guidance:
                 lines.append(f"      -> {item.guidance}")
-        if diag.addresses:
+        if diag.addresses and _show_diagnose_address_footer(diag):
             lines.append(f"    IP: {', '.join(diag.addresses)}")
         return "\n".join(lines)
 
@@ -1420,6 +1456,15 @@ class AddressEditFrame(wx.Frame):
     def _on_close(self, evt) -> None:
         restore_proxy_env(self._proxy_backup)
         evt.Skip()
+
+
+def _show_diagnose_address_footer(diag: DiagnoseResult) -> bool:
+    """Omit redundant IP footer when addresses are already listed in diagnose items."""
+    if diag.type_name in ("zone file", "bind db"):
+        return False
+    if diag.type_name == "hosts file":
+        return False
+    return True
 
 
 def run_gui(
