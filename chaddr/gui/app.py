@@ -22,7 +22,15 @@ from chaddr.gui.address_panel import AddressListPanel
 from chaddr.gui.diagnostics_format import mutable_action_lines
 from chaddr.types.hosts_file import APPLY_TARGETS_LABEL
 from chaddr.gui.editor import open_in_system_editor
-from chaddr.gui.highlighter import append_line, append_lines, clear_text, set_text, setup_styles, _configure_log_stc
+from chaddr.gui.highlighter import (
+    append_line,
+    append_lines,
+    bind_output_text_shortcuts,
+    clear_text,
+    set_text,
+    setup_styles,
+    _configure_log_stc,
+)
 from chaddr.gui.theme import THEMES, apply_theme, install_default_gui_font, mono_font, ui_font
 from chaddr.orchestrator import (
     ProfileRunResult,
@@ -205,6 +213,7 @@ def _make_text_ctrl(parent: wx.Window, min_height: int = 200):
     else:
         ctrl = wx.TextCtrl(parent, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL | wx.BORDER_SUNKEN)
         ctrl.SetFont(mono_font(10))
+        bind_output_text_shortcuts(ctrl)
     ctrl.SetMinSize((240, min_height))
     return ctrl
 

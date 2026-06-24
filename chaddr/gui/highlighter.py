@@ -80,8 +80,60 @@ def style_for_line(line: str) -> int:
     return STYLE_DEFAULT
 
 
+def _select_all_output(ctrl) -> None:
+    if stc is not None and hasattr(ctrl, "SelectAll"):
+        ctrl.SelectAll()
+        return
+    if hasattr(ctrl, "SetSelection") and hasattr(ctrl, "GetLastPosition"):
+        ctrl.SetSelection(0, ctrl.GetLastPosition())
+    elif hasattr(ctrl, "SelectAll"):
+        ctrl.SelectAll()
+
+
+def copy_output_selection(ctrl) -> bool:
+    """Copy the current selection to the clipboard; return True if anything copied."""
+    import wx
+
+    if stc is not None and hasattr(ctrl, "GetSelectionStart"):
+        if ctrl.GetSelectionStart() == ctrl.GetSelectionEnd():
+            return False
+        if hasattr(ctrl, "Copy"):
+            ctrl.Copy()
+            return True
+        text = ctrl.GetSelectedText()
+    elif hasattr(ctrl, "GetStringSelection"):
+        text = ctrl.GetStringSelection()
+        if not text:
+            return False
+    else:
+        return False
+
+    if not text:
+        return False
+    if wx.TheClipboard.Open():
+        wx.TheClipboard.SetData(wx.TextDataObject(text))
+        wx.TheClipboard.Close()
+        return True
+    return False
+
+
+def bind_output_text_shortcuts(ctrl) -> None:
+    import wx
+
+    def on_key(evt: wx.KeyEvent) -> None:
+        if evt.ControlDown() and evt.GetKeyCode() == ord("C"):
+            if copy_output_selection(ctrl):
+                return
+        if evt.ControlDown() and evt.GetKeyCode() == ord("A"):
+            _select_all_output(ctrl)
+            return
+        evt.Skip()
+
+    ctrl.Bind(wx.EVT_KEY_DOWN, on_key)
+
+
 def _configure_log_stc(ctrl) -> None:
-    """Read-only log pane: hide caret and avoid focus churn on append."""
+    """Read-only log pane: hide caret; allow select and copy."""
     if stc is None or not hasattr(ctrl, "SetReadOnly"):
         return
     ctrl.SetReadOnly(True)
@@ -92,9 +144,8 @@ def _configure_log_stc(ctrl) -> None:
     ctrl.SetCaretLineVisible(False)
     if hasattr(ctrl, "SetUseHorizontalScrollBar"):
         ctrl.SetUseHorizontalScrollBar(False)
-    if hasattr(ctrl, "SetCanFocus"):
-        ctrl.SetCanFocus(False)
     setup_styles(ctrl)
+    bind_output_text_shortcuts(ctrl)
 
 
 def append_lines(ctrl, lines: list[str], syntax_highlight: bool) -> None:
