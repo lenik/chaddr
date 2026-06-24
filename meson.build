@@ -73,8 +73,8 @@ launcher_conf = configuration_data()
 launcher_conf.set('PYTHON', py.full_path())
 
 configure_file(
-    input: 'scripts/chaddr.in',
-    output: 'chaddr',
+    input: 'chaddr.py',
+    output: 'chaddr.py',
     configuration: launcher_conf,
     install: true,
     install_dir: bindir,
@@ -103,7 +103,8 @@ configure_file(
 )
 
 install_data(
-    'completion/chaddr',
+    'chaddr.bash',
+    rename: 'chaddr',
     install_dir: bashcompletiondir,
 )
 

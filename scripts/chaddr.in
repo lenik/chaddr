@@ -1,7 +1,0 @@
-#!@PYTHON@
-"""chaddr — change or reallocate profile-managed IP addresses."""
-
-from chaddr.cli import main
-
-if __name__ == "__main__":
-    raise SystemExit(main())

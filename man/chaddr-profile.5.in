@@ -1,0 +1,273 @@
+.TH CHADDR-PROFILE 5 "June 2026" "chaddr @VERSION@" "File Formats"
+.SH NAME
+chaddr-profile \- chaddr address profile file format
+.SH DESCRIPTION
+A
+.I chaddr
+profile is a plain-text file that declares how to discover the current IP
+addresses of a host and which resources must be checked or updated when those
+addresses change. Profiles are read by
+.BR chaddr (1).
+.PP
+Each file is a sequence of
+.BR key: value
+lines. Keys are case-insensitive. Empty lines and lines beginning with
+.B #
+are ignored, except for special
+.B # option
+directives (see below). A trailing backslash
+.B \(rs
+at the end of a physical line continues the line on the next line (shell-style
+continuation).
+.SH FILE LOCATION
+Profile files have no required filename extension. By default they live in
+.IR ~/.config/chaddr/profile/ .
+Override the directory with the
+.B CHADDR_PROFILE_DIR
+environment variable. Example profiles ship in
+.IR /usr/share/chaddr/profile/
+when installed from a package, or in
+.I profile/
+in a source checkout. On first run, an empty user profile directory is seeded
+from those examples.
+.SH STRUCTURE
+Profiles contain, in order:
+.IP \(bu 3
+An optional
+.B header
+(before the first
+.B from:
+or
+.B type:
+line).
+.IP \(bu 3
+An optional
+.B from
+block that resolves current addresses.
+.IP \(bu 3
+One or more
+.B type
+blocks, each describing a resource
+.B chaddr
+can diagnose, renew, or manually update.
+.PP
+A profile may contain multiple
+.B type:
+blocks. Each block starts with
+.B type: \(laNAME\(ra
+and continues until the next
+.B type:
+or
+.B from:
+line or end of file.
+.SH HEADER
+Header fields appear before the first
+.B from:
+or
+.B type:
+line.
+.TP
+.B description: \(laTEXT\(ra
+Short human-readable label shown in the GUI profile list.
+.TP
+.B version: \(laTEXT\(ra
+Optional version string shown in the GUI profile list.
+.TP
+.B addr-history: \(laADDRS\(ra
+Comma-separated historical IPv4 and/or IPv6 addresses. IPv4 and IPv6 are
+detected automatically. These addresses are treated like spare
+.BR \-\-old-ip
+values when matching old IPs in
+.BR hosts (5)
+entries and BIND zone files during diagnose and apply.
+.SH FROM BLOCK
+The optional
+.B from
+block tells
+.B chaddr
+how to discover the current primary addresses for the profile.
+.TP
+.B from: resolve
+Use DNS to resolve a hostname.
+.TP
+.B resolve: \(laHOSTNAME\(ra
+Hostname to resolve. Aliases:
+.BR host: ,
+.BR name: .
+.PP
+Example:
+.PP
+.RS
+.nf
+from: resolve
+resolve: relay.example.com
+.fi
+.RE
+.SH CLI OPTIONS IN PROFILES
+Lines of the form:
+.PP
+.RS
+.B # option \-\-flag
+.RE
+.PP
+attach extra CLI flags to the following
+.B type:
+block. At the very beginning of a file (before any header,
+.B from:
+or
+.B type:
+line), such lines register global CLI options for the profile.
+.PP
+Credentials and secrets are normally read from
+.IR chaddr.conf ;
+profile
+.B # option
+lines are mainly for per-block flags required by handlers.
+.SH RESOURCE TYPES
+Each resource block begins with
+.B type: \(laNAME\(ra
+where
+.I NAME
+is one of the supported types below (case-insensitive).
+.SS aws elastic ip
+Diagnose and renew (reallocate) an AWS Elastic IP associated with an EC2
+instance.
+.TP
+.B region: \(laREGION\(ra
+AWS region ID or short alias. Aliases include
+.IR sg1 ,
+.IR kr1 ,
+.IR hk1 ,
+.IR jp1 ,
+.IR jp2 ,
+.IR au1 ,
+.IR us1 ,
+and
+.IR us2 .
+.TP
+.B instance: \(laID\(ra
+.TP
+.B instance_id: \(laID\(ra
+Optional EC2 instance ID. When omitted, the handler searches running instances
+in the configured region.
+.PP
+Requires AWS credentials in
+.IR chaddr.conf .
+.SS aliyun elastic ip
+Diagnose and renew (reallocate) an Aliyun Elastic IP.
+.TP
+.B region: \(laREGION\(ra
+Aliyun region ID or alias (
+.IR cn1 ,
+.IR cn2 ,
+.IR cn3 ,
+.IR sg1 ,
+.IR hk1 ,
+etc.).
+.TP
+.B instance: \(laID\(ra
+.TP
+.B instance_id: \(laID\(ra
+Optional ECS instance ID. When omitted, the handler searches running instances.
+.PP
+Requires Aliyun credentials in
+.IR chaddr.conf .
+.SS registered nameserver
+Diagnose and manually apply IP changes to registered nameservers (Namecheap).
+.TP
+.B api: namecheap
+Namecheap API (required).
+.TP
+.B ns: \(laHOSTS\(ra
+Comma-separated nameserver hostnames, for example
+.IR ns1.example.com ,
+.IR ns2.example.com .
+.TP
+.B domain: \(laDOMAIN\(ra
+.TP
+.B ns_domain: \(laDOMAIN\(ra
+Optional parent domain. When omitted, the domain is derived from the first
+nameserver hostname.
+.PP
+Requires Namecheap API credentials in
+.IR chaddr.conf .
+.SS hosts file
+Diagnose and manually apply IP changes in a local
+.BR hosts (5)
+file.
+.TP
+.B path: \(laFILE\(ra
+Path to the hosts file (for example
+.IR /etc/hosts ).
+.TP
+.B host: \(laNAMES\(ra
+.TP
+.B hosts: \(laNAMES\(ra
+Optional comma-separated hostnames to limit which lines are considered. When
+omitted, all lines matching spare/old IP addresses are updated.
+.SS bind db
+Diagnose and manually apply IP changes in a BIND zone file.
+.TP
+.B path: \(laFILE\(ra
+Path to the zone database file.
+.TP
+.B record: \(laNAMES\(ra
+.TP
+.B name: \(laNAMES\(ra
+Optional comma-separated record names to limit which A records are updated.
+.SH ACTIONS BY TYPE
+.TP
+.B Diagnose
+All supported types.
+.TP
+.B Renew (reallocate)
+.B aws elastic ip
+and
+.B aliyun elastic ip
+only.
+.TP
+.B Apply (manual IP change)
+.B registered nameserver ,
+.BR hosts file ,
+and
+.B bind db .
+.SH EXAMPLE
+.PP
+.RS
+.nf
+# chaddr example profile
+description: Example relay
+version: 1
+addr-history: 198.51.100.4, 2001:db8::1, \\
+  203.0.113.10
+
+from: resolve
+resolve: relay.example.com
+
+type: aws elastic ip
+region: us-east-1
+
+type: aliyun elastic ip
+region: cn-hangzhou
+
+type: registered nameserver
+api: namecheap
+ns: ns1.example.com, \\
+   ns2.example.com
+
+type: hosts file
+path: /etc/hosts
+
+type: bind db
+path: /var/cache/bind/db.example.com
+.fi
+.RE
+.SH SEE ALSO
+.BR chaddr (1),
+.BR hosts (5),
+.BR named (8)
+.SH AUTHOR
+Lenik &lt;zephyr@bodz.net&gt;
+.SH COPYRIGHT
+Copyright \(co 2026 Lenik. License AGPL-3.0-or-later; see LICENSE in the source
+distribution.

@@ -1,0 +1,183 @@
+.TH CHADDR 1 "June 2026" "chaddr @VERSION@" "User Commands"
+.SH NAME
+chaddr \- change or reallocate profile-managed IP addresses
+.SH SYNOPSIS
+.B chaddr
+[\fIOPTIONS\fR] [\fIPROFILE\fR...]
+.SH DESCRIPTION
+.B chaddr
+reads one or more profile files and coordinates updates across cloud APIs,
+DNS/name servers, local
+.BR hosts (5),
+and BIND zone files. Without CLI action flags it opens a graphical editor.
+.PP
+Profiles live in
+.I ~/.config/chaddr/profile
+by default. Override with the
+.B CHADDR_PROFILE_DIR
+environment variable. Example profiles ship in
+.I /usr/share/chaddr/profile
+when installed from a package, or in
+.I profile/
+in a source checkout. On first run, an empty user profile directory is seeded
+from those examples. Each profile lists resource blocks such as AWS Elastic IP,
+Namecheap registered nameservers, hosts files, and BIND db files.
+.SH OPTIONS
+.TP
+.BR \-c ", " \-\-config " " \fIFILE\fR
+JSON configuration file with API keys and secrets. If omitted,
+.B chaddr
+searches for
+.I ./chaddr.conf
+and
+.I ~/.config/chaddr/chaddr.conf.
+.TP
+.B \-\-proxy \fIURL\fR
+HTTP or SOCKS proxy URL, for example
+.IR socks5://127.0.0.1:1080 .
+.TP
+.B \-\-diagnose
+Run diagnosis only and print results to stdout (CLI mode).
+.TP
+.B \-\-refetch
+Reallocate elastic IP addresses and propagate changes (CLI mode).
+.TP
+.B \-\-apply \fIIP\fR
+Apply a new IPv4 or IPv6 address manually (CLI mode). Equivalent to
+.B \-\-apply-ipv4
+when the value is IPv4.
+.TP
+.B \-\-apply-ipv4 \fIIP\fR
+New IPv4 address for manual apply.
+.TP
+.B \-\-apply-ipv6 \fIIP\fR
+New IPv6 address for manual apply.
+.TP
+.B \-\-old-ip \fIIP\fR
+Old IP to match when automatic detection fails during manual apply or diagnose.
+.TP
+.BR \-v ", " \-\-verbose
+Increase logging verbosity. Repeat for debug output.
+.TP
+.B \-\-no-gui
+Force CLI mode even when no action flag is given.
+.SH CONFIGURATION
+Configuration is JSON. Copy
+.I chaddr.conf.template
+to
+.I chaddr.conf
+and fill in credentials. Keys include AWS, Aliyun, and Namecheap API settings,
+optional
+.B proxy,
+and
+.B client_ip
+with a one-hour cache expiry when auto-detected.
+.PP
+Set
+.B namecheap_whitelist
+to
+.I disabled
+(the default) to skip portal-based IP whitelisting. Set it to
+.I portal
+to retry through the Namecheap web UI when API calls fail because the client IP
+is not whitelisted.
+.SH PROFILES
+Each profile file contains blocks such as:
+.PP
+.RS
+.nf
+description: Example relay
+addr-history: 198.51.100.4, 2001:db8::1
+
+from: resolve
+resolve: example.example.com
+
+type: aws elastic ip
+region: us-east-1
+
+type: registered nameserver
+api: namecheap
+ns: ns1.example.com, ns2.example.com
+
+type: hosts file
+path: /etc/hosts
+
+type: bind db
+path: /var/cache/bind/db.example.com
+.fi
+.RE
+.PP
+.B from: resolve
+with a hostname to discover current addresses. See
+.BR chaddr-profile (5)
+for the full profile syntax, header fields, resource types, and examples. A
+trailing
+.B \\
+continues a line on the next physical line. Spare addresses from earlier
+handlers or the GUI help match old IPs in hosts files.
+.SH GUI
+The graphical interface lets you select profiles, edit current and new
+addresses, diagnose resources, renew elastic IPs, and apply manual changes.
+The profile list title shows the active directory, for example
+.IR "Profile: ~/.config/chaddr/profile/" .
+Use
+.B File \(-> Browse...
+to switch directories. Use
+.B View \(-> Right Pane
+(\fBCtrl+H\fR) to show logging and diagnostics tabs.
+.PP
+Writing protected files such as
+.I /etc/hosts
+may prompt for elevation through
+.BR pkexec (1),
+.BR gksudo (1),
+or
+.BR kdesudo (1).
+.SH EXAMPLES
+Diagnose a profile:
+.PP
+.RS
+.B chaddr \-\-diagnose \-v example
+.RE
+.PP
+Apply a new IPv4 manually:
+.PP
+.RS
+.B chaddr \-\-apply 203.0.113.10 \-\-old-ip 198.51.100.4 example
+.RE
+.PP
+Launch the GUI with profiles pre-selected:
+.PP
+.RS
+.B chaddr example
+.RE
+.SH ENVIRONMENT
+.TP
+.B CHADDR_PROFILE_DIR
+Directory containing profile files. Default:
+.I ~/.config/chaddr/profile/
+.SH FILES
+.TP
+.I ~/.config/chaddr/profile/
+Default profile directory.
+.TP
+.I ~/.config/chaddr/chaddr.conf
+User configuration file.
+.TP
+.I ./chaddr.conf
+Local configuration file in the current directory.
+.TP
+.I /usr/share/chaddr/profile/
+Example profiles installed with the Debian package.
+.TP
+.I /usr/bin/chaddr
+Installed command when built as a Debian package.
+.SH SEE ALSO
+.BR chaddr-profile (5),
+.BR hosts (5),
+.BR named (8)
+.SH AUTHOR
+Lenik &lt;zephyr@bodz.net&gt;
+.SH COPYRIGHT
+Copyright \(co 2026 Lenik. License AGPL-3.0-or-later; see LICENSE in the source
+distribution.
