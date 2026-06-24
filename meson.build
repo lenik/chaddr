@@ -69,16 +69,17 @@ chaddr_conf.set('DOC_DIR', installed_doc_dir)
 
 subdir('chaddr')
 
-launcher_conf = configuration_data()
-launcher_conf.set('PYTHON', py.full_path())
-
-configure_file(
+chaddr_launcher = configure_file(
     input: 'chaddr.py',
-    output: 'chaddr.py',
-    configuration: launcher_conf,
-    install: true,
+    output: 'chaddr-launcher.py',
+    copy: true,
+)
+
+install_data(
+    chaddr_launcher,
     install_dir: bindir,
     install_mode: 'rwxr-xr-x',
+    rename: 'chaddr',
 )
 
 install_data(

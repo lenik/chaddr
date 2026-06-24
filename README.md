@@ -10,7 +10,7 @@ Homepage: https://github.com/lenik/chaddr
 
 - **GUI** — profile picker, address CRUD, diagnose, renew, and apply with live
   logging and diagnostics tabs
-- **CLI** — `--diagnose`, `--refetch`, and manual `--apply` for scripting
+- **CLI** — `--diagnose`, `--renew`, and manual `--apply` for scripting
 - **Profiles** — declarative multi-resource definitions under `~/.config/chaddr/profile/`
 - **Config** — JSON file for API keys, proxy, and cached client IP
 - **Elevation** — GUI prompts via `pkexec`, `gksudo`, or `kdesudo` when writing
@@ -80,7 +80,7 @@ Profiles are plain-text files in `~/.config/chaddr/profile/` by default. Example
 ```
 description: Example relay
 version: 1
-addr-history: 198.51.100.4, 2001:db8::1
+addr-history: 198.51.100.4 2001:db8::1
 
 from: resolve
 resolve: relay.example.com
@@ -98,7 +98,7 @@ ns: ns1.example.com, ns2.example.com
 type: hosts file
 path: /etc/hosts
 
-type: bind db
+type: zone file
 path: /var/cache/bind/db.example.com
 ```
 
@@ -110,13 +110,13 @@ Supported `type` values:
 | `aliyun elastic ip` | Diagnose, renew |
 | `registered nameserver` | Diagnose, apply (Namecheap NS IP) |
 | `hosts file` | Diagnose, apply (replace old IP in file) |
-| `bind db` | Diagnose, apply (replace A record IP) |
+| `zone file` | Diagnose, apply (replace A record IP) |
 
 Use `from: resolve` with `resolve: hostname` to discover current addresses.
 Optional header fields before the first `from:` / `type:` block include `description:`,
-`version:`, and `addr-history:` (comma-separated historical IPv4/IPv6 addresses).
+`version:`, and `addr-history:` (whitespace-separated historical IPv4/IPv6 addresses).
 Lines may continue on the next line with a trailing `\`.
-`addr-history` works like `--old-ip` when matching old IPs in hosts files and BIND zones.
+`addr-history` works like `--old-ip` when matching old IPs in hosts files and zone files.
 The GUI and CLI accept spare “from” addresses to locate old IPs in hosts files.
 
 ## CLI usage
@@ -130,7 +130,7 @@ chaddr [OPTIONS] [PROFILE...]
 | `-c`, `--config FILE` | JSON config file |
 | `--proxy URL` | Proxy for API calls |
 | `--diagnose` | Run checks only |
-| `--refetch` | Reallocate elastic IPs |
+| `--renew` | Reallocate elastic IPs |
 | `--apply IP` | Manual apply (IPv4 or IPv6) |
 | `--apply-ipv4`, `--apply-ipv6` | Manual apply by family |
 | `--old-ip IP` | Old IP when auto-detection fails |
@@ -142,7 +142,7 @@ Examples:
 ```bash
 chaddr --diagnose -v example
 chaddr --apply 203.0.113.10 --old-ip 198.51.100.4 example
-chaddr --refetch example
+chaddr --renew example
 ```
 
 ## GUI usage
@@ -219,7 +219,7 @@ meson install -C build
 
 ## License
 
-Copyright (C) 2026 Lenik <zephyr@bodz.net>
+Copyright (C) 2026 Lenik <chaddr@bodz.net>
 
 This program is free software: you can redistribute it and/or modify it under
 the terms of the **GNU Affero General Public License v3.0 or later** (AGPL-3.0).

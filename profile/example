@@ -1,7 +1,7 @@
 # chaddr example profile — copy to ~/.config/chaddr/profile/ and edit before use.
 description: Example relay
 version: 1
-addr-history: 198.51.100.4, 2001:db8::1, \
+addr-history: 198.51.100.4 2001:db8::1 \
   203.0.113.10
 
 from: resolve
@@ -21,5 +21,5 @@ ns: ns1.example.com, \
 type: hosts file
 path: /etc/hosts
 
-type: bind db
+type: zone file
 path: /var/cache/bind/db.example.com

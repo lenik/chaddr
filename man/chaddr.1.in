@@ -39,7 +39,7 @@ HTTP or SOCKS proxy URL, for example
 .B \-\-diagnose
 Run diagnosis only and print results to stdout (CLI mode).
 .TP
-.B \-\-refetch
+.B \-\-renew
 Reallocate elastic IP addresses and propagate changes (CLI mode).
 .TP
 .B \-\-apply \fIIP\fR
@@ -87,7 +87,7 @@ Each profile file contains blocks such as:
 .RS
 .nf
 description: Example relay
-addr-history: 198.51.100.4, 2001:db8::1
+addr-history: 198.51.100.4 2001:db8::1
 
 from: resolve
 resolve: example.example.com
@@ -102,7 +102,7 @@ ns: ns1.example.com, ns2.example.com
 type: hosts file
 path: /etc/hosts
 
-type: bind db
+type: zone file
 path: /var/cache/bind/db.example.com
 .fi
 .RE
@@ -177,7 +177,7 @@ Installed command when built as a Debian package.
 .BR hosts (5),
 .BR named (8)
 .SH AUTHOR
-Lenik &lt;zephyr@bodz.net&gt;
+Lenik &lt;chaddr@bodz.net&gt;
 .SH COPYRIGHT
 Copyright \(co 2026 Lenik. License AGPL-3.0-or-later; see LICENSE in the source
 distribution.

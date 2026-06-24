@@ -74,7 +74,7 @@ Short human-readable label shown in the GUI profile list.
 Optional version string shown in the GUI profile list.
 .TP
 .B addr-history: \(laADDRS\(ra
-Comma-separated historical IPv4 and/or IPv6 addresses. IPv4 and IPv6 are
+Whitespace-separated historical IPv4 and/or IPv6 addresses. IPv4 and IPv6 are
 detected automatically. These addresses are treated like spare
 .BR \-\-old-ip
 values when matching old IPs in
@@ -205,8 +205,11 @@ Path to the hosts file (for example
 .B hosts: \(laNAMES\(ra
 Optional comma-separated hostnames to limit which lines are considered. When
 omitted, all lines matching spare/old IP addresses are updated.
-.SS bind db
+.SS zone file
 Diagnose and manually apply IP changes in a BIND zone file.
+The legacy type name
+.B bind db
+is still accepted.
 .TP
 .B path: \(laFILE\(ra
 Path to the zone database file.
@@ -230,7 +233,7 @@ only.
 .B registered nameserver ,
 .BR hosts file ,
 and
-.B bind db .
+.BR zone file .
 .SH EXAMPLE
 .PP
 .RS
@@ -238,7 +241,7 @@ and
 # chaddr example profile
 description: Example relay
 version: 1
-addr-history: 198.51.100.4, 2001:db8::1, \\
+addr-history: 198.51.100.4 2001:db8::1 \\
   203.0.113.10
 
 from: resolve
@@ -258,7 +261,7 @@ ns: ns1.example.com, \\
 type: hosts file
 path: /etc/hosts
 
-type: bind db
+type: zone file
 path: /var/cache/bind/db.example.com
 .fi
 .RE
@@ -267,7 +270,7 @@ path: /var/cache/bind/db.example.com
 .BR hosts (5),
 .BR named (8)
 .SH AUTHOR
-Lenik &lt;zephyr@bodz.net&gt;
+Lenik &lt;chaddr@bodz.net&gt;
 .SH COPYRIGHT
 Copyright \(co 2026 Lenik. License AGPL-3.0-or-later; see LICENSE in the source
 distribution.
