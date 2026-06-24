@@ -154,6 +154,8 @@ def _spare_from_sets(accumulated: list[AddressSet]) -> SpareFromAddresses:
 
 
 def _extend_spare_from_addresses(accumulated: list[AddressSet], result: DiagnoseResult) -> None:
+    if result.type_name in ("zone file", "bind db", "hosts file"):
+        return
     for ip in result.addresses:
         if is_ipv4(ip):
             accumulated.append(AddressSet(ipv4=ip))
@@ -172,7 +174,8 @@ def diagnose_profile(
 ) -> ProfileRunResult:
     log = logger or logging.getLogger("chaddr")
     accumulated = _accumulating_spare_sets(profile, spare_from_sets)
-    handlers = _build_handlers(profile, cli_options or {}, proxy, log, _spare_from_sets(accumulated))
+    profile_spare = _spare_from_sets(list(accumulated))
+    handlers = _build_handlers(profile, cli_options or {}, proxy, log, profile_spare)
     results: list[DiagnoseResult] = []
     source = AddressSet()
 
@@ -193,6 +196,7 @@ def diagnose_profile(
 
     for index, handler in enumerate(handlers):
         handler.set_spare_from_addresses(_spare_from_sets(accumulated))
+        handler.set_profile_spare_for_apply(profile_spare)
         if progress:
             progress((offset + index) / total, f"Diagnosing {handler.type_name}")
         handler.set_progress_callback(progress)
@@ -371,6 +375,7 @@ def reallocate_profile(
             fraction = 0.5 + (0.5 * index / total)
             progress(fraction, f"Updating {handler.type_name}")
         handler.set_progress_callback(progress)
+        handler.set_source_addresses(old_source)
         handler.update_address_map(old_addresses, new_addresses)
 
     if progress:

@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from chaddr.address import SpareFromAddresses
 from chaddr.privilege import write_text as write_text_privileged
 from chaddr.types.base import AddressTypeHandler, DiagnoseItem, DiagnoseResult, IPV4_RE, is_ipv4, is_ipv6
+from chaddr.types.hosts_file import APPLY_TARGETS_LABEL
+
+BIND_ZONE_A_IPS_LABEL = "unique A record IPs in zone file"
 
 
 class BindDbHandler(AddressTypeHandler):
-    type_name = "bind db"
+    type_name = "zone file"
     supports_manual_edit = True
     supports_reallocate = False
 
@@ -22,7 +26,7 @@ class BindDbHandler(AddressTypeHandler):
     def _read_lines(self) -> list[str]:
         path = self._path()
         if not path.is_file():
-            raise FileNotFoundError(f"bind db file not found: {path}")
+            raise FileNotFoundError(f"zone file not found: {path}")
         return path.read_text(encoding="utf-8").splitlines()
 
     def _extract_a_record_ips(self, lines: list[str]) -> list[str]:
@@ -41,6 +45,63 @@ class BindDbHandler(AddressTypeHandler):
                     if "SOA" not in stripped.upper():
                         ips.append(match)
         return ips
+
+    def _effective_spare(self) -> SpareFromAddresses:
+        if self._spare_from_addresses and not self._spare_from_addresses.is_empty():
+            return self._spare_from_addresses
+        if self._source_addresses and not self._source_addresses.is_empty():
+            return SpareFromAddresses.from_address_sets(self._source_addresses)
+        return SpareFromAddresses()
+
+    def _old_ip_candidates(self, primary: str, spare: SpareFromAddresses | None = None) -> list[str]:
+        candidates = [primary]
+        pool_spare = spare if spare is not None else self._effective_spare()
+        if is_ipv4(primary):
+            pool = pool_spare.ipv4
+        elif is_ipv6(primary):
+            pool = pool_spare.ipv6
+        else:
+            pool = pool_spare.all()
+        for ip in pool:
+            if ip not in candidates:
+                candidates.append(ip)
+        return candidates
+
+    def _apply_target_lines(self, lines: list[str], old_ip: str | None = None) -> list[str]:
+        """Lines that Apply would rewrite (shown in diagnostics)."""
+        record_field = self.config.get("record") or self.config.get("name")
+        record_names = [n.strip() for n in record_field.split(",")] if record_field else None
+
+        primary = (old_ip or "").strip()
+        if not primary:
+            match_spare = self._apply_match_spare()
+            if match_spare.ipv4:
+                primary = match_spare.ipv4[0]
+            elif match_spare.ipv6:
+                primary = match_spare.ipv6[0]
+            elif self._source_addresses and not self._source_addresses.is_empty():
+                primary = self._source_addresses.ipv4 or self._source_addresses.ipv6 or ""
+
+        old_candidates = (
+            set(self._old_ip_candidates(primary, self._apply_match_spare())) if primary else set()
+        )
+        if not old_candidates:
+            return []
+
+        matched: list[str] = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith(";"):
+                continue
+            if record_names:
+                parts = stripped.split()
+                if parts and parts[0].rstrip(".") in record_names:
+                    if any(ip in line for ip in old_candidates):
+                        matched.append(line)
+                continue
+            if any(ip in line for ip in old_candidates):
+                matched.append(line)
+        return matched
 
     def diagnose(self) -> DiagnoseResult:
         items: list[DiagnoseItem] = []
@@ -65,14 +126,24 @@ class BindDbHandler(AddressTypeHandler):
             items.append(DiagnoseItem("file", True, f"{len(lines)} lines"))
             addresses = sorted(set(self._extract_a_record_ips(lines)))
             if addresses:
-                items.append(DiagnoseItem("A records", True, ", ".join(addresses)))
+                items.append(DiagnoseItem(BIND_ZONE_A_IPS_LABEL, True, ", ".join(addresses)))
             else:
                 items.append(
                     DiagnoseItem(
-                        "A records",
+                        BIND_ZONE_A_IPS_LABEL,
                         False,
                         "no A record IPv4 addresses found",
                         "Ensure the zone file contains A records with IPv4 addresses.",
+                    )
+                )
+
+            target_lines = self._apply_target_lines(lines)
+            if target_lines:
+                items.append(
+                    DiagnoseItem(
+                        APPLY_TARGETS_LABEL,
+                        True,
+                        "\n".join(target_lines),
                     )
                 )
         except FileNotFoundError:
@@ -99,6 +170,15 @@ class BindDbHandler(AddressTypeHandler):
         ok = all(item.ok for item in items)
         return DiagnoseResult(self.type_name, "ready" if ok else "issues found", ok, items, addresses)
 
+    def _replace_a_record_ip(self, line: str, parts: list[str], new_ip: str) -> str:
+        for idx in (4, 3):
+            if len(parts) > idx and parts[idx - 1].upper() == "A" and is_ipv4(parts[idx]):
+                return line.replace(parts[idx], new_ip, 1)
+        for candidate in sorted({p for p in parts if is_ipv4(p)}, key=len, reverse=True):
+            if candidate in line:
+                return line.replace(candidate, new_ip, 1)
+        return line
+
     def apply_manual(self, old_ip: str, new_ip: str) -> bool:
         if not is_ipv4(new_ip) and not is_ipv6(new_ip):
             raise ValueError(f"invalid IP address: {new_ip}")
@@ -109,30 +189,36 @@ class BindDbHandler(AddressTypeHandler):
         new_lines: list[str] = []
         record_field = self.config.get("record") or self.config.get("name")
         record_names = [n.strip() for n in record_field.split(",")] if record_field else None
+        old_candidates = set(self._old_ip_candidates(old_ip))
 
         for line in lines:
             stripped = line.strip()
             if stripped.startswith(";") or not stripped:
                 new_lines.append(line)
                 continue
+            parts = stripped.split()
             if record_names:
-                parts = stripped.split()
-                if parts and parts[0].rstrip(".") in record_names and old_ip in line:
-                    new_line = line.replace(old_ip, new_ip)
+                if parts and parts[0].rstrip(".") in record_names:
+                    new_line = self._replace_a_record_ip(line, parts, new_ip)
                     if new_line != line:
                         changed = True
                     new_lines.append(new_line)
                     continue
-            if old_ip in line and not stripped.startswith(";"):
-                new_line = line.replace(old_ip, new_ip)
-                if new_line != line:
-                    changed = True
+            new_line = line
+            line_changed = False
+            for candidate in sorted(old_candidates, key=len, reverse=True):
+                if candidate in new_line:
+                    new_line = new_line.replace(candidate, new_ip)
+                    line_changed = True
+            if line_changed:
+                changed = True
                 new_lines.append(new_line)
             else:
                 new_lines.append(line)
 
         if not changed:
-            self.logger.warning("No bind db entries matched old IP %s in %s", old_ip, path)
+            tried = ", ".join(sorted(old_candidates))
+            self.logger.warning("No zone file entries matched old IP(s) [%s] in %s", tried, path)
             return False
 
         write_text_privileged(

@@ -50,15 +50,15 @@ class HostsFileHandler(AddressTypeHandler):
             return SpareFromAddresses.from_address_sets(self._source_addresses)
         return SpareFromAddresses()
 
-    def _old_ip_candidates(self, primary: str) -> list[str]:
+    def _old_ip_candidates(self, primary: str, spare: SpareFromAddresses | None = None) -> list[str]:
         candidates = [primary]
-        spare = self._effective_spare()
+        pool_spare = spare if spare is not None else self._effective_spare()
         if is_ipv4(primary):
-            pool = spare.ipv4
+            pool = pool_spare.ipv4
         elif is_ipv6(primary):
-            pool = spare.ipv6
+            pool = pool_spare.ipv6
         else:
-            pool = spare.all()
+            pool = pool_spare.all()
         for ip in pool:
             if ip not in candidates:
                 candidates.append(ip)
@@ -121,15 +121,17 @@ class HostsFileHandler(AddressTypeHandler):
 
         primary = (old_ip or "").strip()
         if not primary:
-            spare = self._effective_spare()
-            if spare.ipv4:
-                primary = spare.ipv4[0]
-            elif spare.ipv6:
-                primary = spare.ipv6[0]
+            match_spare = self._apply_match_spare()
+            if match_spare.ipv4:
+                primary = match_spare.ipv4[0]
+            elif match_spare.ipv6:
+                primary = match_spare.ipv6[0]
             elif self._source_addresses and not self._source_addresses.is_empty():
                 primary = self._source_addresses.ipv4 or self._source_addresses.ipv6 or ""
 
-        old_candidates = set(self._old_ip_candidates(primary)) if primary else set()
+        old_candidates = (
+            set(self._old_ip_candidates(primary, self._apply_match_spare())) if primary else set()
+        )
         matched: list[str] = []
 
         for line in lines:
