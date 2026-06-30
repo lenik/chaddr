@@ -1349,10 +1349,6 @@ class AddressEditFrame(wx.Frame):
 
     def _do_renew(self, profiles: list[str], spare_by_profile: dict[str, list[AddressSet]]) -> None:
         aggregate = _AggregateProgress(self._update_progress, profiles)
-        try:
-            override = self.address_panel.get_apply_address_set()
-        except ValueError:
-            override = None
 
         for name in profiles:
             if self._operation_cancel_event.is_set():
@@ -1363,7 +1359,6 @@ class AddressEditFrame(wx.Frame):
                 with ProfileLogContext(name):
                     result = reallocate_profile(
                         profile,
-                        override,
                         self.cli_options,
                         self.proxy,
                         self.logger,

@@ -140,7 +140,6 @@ def _run_cli(
         elif renew:
             result = reallocate_profile(
                 profile,
-                None,
                 cli_options,
                 proxy,
                 logger,

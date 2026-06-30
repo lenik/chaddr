@@ -1,3 +1,19 @@
+chaddr (1.0.3) testing; urgency=medium
+
+  * Renew: always propagate the freshly allocated Elastic IP; the address-panel
+    selection applies only to Apply, not Renew (removed reallocate_profile
+    new_override and GUI override on Renew)
+  * Privilege: batch privileged file writes in apply/renew so multiple protected
+    paths share one elevation prompt; prefer sudo -n when credentials are cached,
+    then sudo, pkexec, gksudo, or kdesudo
+  * Apply: when the profile old address equals the selected new IP, still scan
+    spare/history candidates in file, hosts, and zone handlers
+  * GUI: fix Ctrl+C and Ctrl+A in read-only log and diagnostics panes (STC focus
+    and explicit copy shortcuts)
+  * Packaging: add gui/editor.py and types/plain_file.py to chaddr/meson.build
+
+ -- Lenik (谢继雷) <lenik@bodz.net>  Tue, 30 Jun 2026 14:00:00 +0800
+
 chaddr (1.0.2) testing; urgency=medium
 
   * Profiles: support multiple from: blocks per profile (resolve, ec2 instance,

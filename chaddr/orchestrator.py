@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from chaddr.address import AddressSet, SpareFromAddresses, is_ipv4, is_ipv6, resolve_from
+from chaddr.privilege import batch_writes
 from chaddr.profile import (
     Profile,
     ProfileFromBlock,
@@ -446,25 +447,26 @@ def apply_address_profile(
     total = max(len(manual_handlers), 1)
     changed_count = 0
 
-    for index, handler in enumerate(manual_handlers):
-        handler.set_profile_spare_for_apply(profile_spare)
-        if progress:
-            progress(index / total, f"Applying {handler.type_name}")
-        handler.set_progress_callback(progress)
-        log.info("--- Applying %s (%d/%d) ---", handler.type_name, index + 1, len(manual_handlers))
-        try:
-            if handler.apply_address_map(old_addresses, new_addresses):
-                changed_count += 1
-        except Exception as exc:
-            log.exception("Apply failed for %s: %s", handler.type_name, exc)
-            return ProfileRunResult(
-                profile.name,
-                False,
-                f"apply failed for {handler.type_name}: {exc}",
-                diagnose_results,
-                old_addresses=old_addresses,
-                new_addresses=new_addresses,
-            )
+    with batch_writes():
+        for index, handler in enumerate(manual_handlers):
+            handler.set_profile_spare_for_apply(profile_spare)
+            if progress:
+                progress(index / total, f"Applying {handler.type_name}")
+            handler.set_progress_callback(progress)
+            log.info("--- Applying %s (%d/%d) ---", handler.type_name, index + 1, len(manual_handlers))
+            try:
+                if handler.apply_address_map(old_addresses, new_addresses):
+                    changed_count += 1
+            except Exception as exc:
+                log.exception("Apply failed for %s: %s", handler.type_name, exc)
+                return ProfileRunResult(
+                    profile.name,
+                    False,
+                    f"apply failed for {handler.type_name}: {exc}",
+                    diagnose_results,
+                    old_addresses=old_addresses,
+                    new_addresses=new_addresses,
+                )
 
     if progress:
         progress(1.0, f"Applied {old_addresses.format()} -> {new_addresses.format()}")
@@ -506,7 +508,6 @@ def apply_manual_profile(
 
 def reallocate_profile(
     profile: Profile,
-    new_override: AddressSet | None = None,
     cli_options: dict | None = None,
     proxy: str | None = None,
     logger: logging.Logger | None = None,
@@ -556,20 +557,19 @@ def reallocate_profile(
     )
     new_addresses = AddressSet(
         ipv4=new_ip,
-        ipv6=(new_override.ipv6 if new_override and new_override.ipv6 else old_source.ipv6),
+        ipv6=old_source.ipv6,
     )
-    if new_override and new_override.ipv4:
-        new_addresses = AddressSet(ipv4=new_override.ipv4, ipv6=new_addresses.ipv6)
 
     update_handlers = [handler for handler in handlers if handler.supports_manual_edit]
     total = max(len(update_handlers), 1)
-    for index, handler in enumerate(update_handlers):
-        if progress:
-            fraction = 0.5 + (0.5 * index / total)
-            progress(fraction, f"Updating {handler.type_name}")
-        handler.set_progress_callback(progress)
-        handler.set_source_addresses(old_source)
-        handler.update_address_map(old_addresses, new_addresses)
+    with batch_writes():
+        for index, handler in enumerate(update_handlers):
+            if progress:
+                fraction = 0.5 + (0.5 * index / total)
+                progress(fraction, f"Updating {handler.type_name}")
+            handler.set_progress_callback(progress)
+            handler.set_source_addresses(old_source)
+            handler.update_address_map(old_addresses, new_addresses)
 
     if progress:
         progress(1.0, f"Reallocate complete: {old_addresses.format()} -> {new_addresses.format()}")
