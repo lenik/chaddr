@@ -66,13 +66,15 @@ chaddr_conf.set('DATADIR', prefix / datadir)
 chaddr_conf.set('SYSCONFDIR', prefix / sysconfdir)
 chaddr_conf.set('PROFILE_DIR', installed_profile_dir)
 chaddr_conf.set('DOC_DIR', installed_doc_dir)
+chaddr_conf.set('PYTHON', '/usr/bin/python3')
+chaddr_conf.set('PY_INSTALL_DIR', py_install_dir)
 
 subdir('chaddr')
 
 chaddr_launcher = configure_file(
-    input: 'chaddr.py',
+    input: 'chaddr.py.in',
     output: 'chaddr-launcher.py',
-    copy: true,
+    configuration: chaddr_conf,
 )
 
 install_data(
