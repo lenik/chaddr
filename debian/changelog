@@ -1,3 +1,31 @@
+chaddr (1.0.4) testing; urgency=medium
+
+  * Packaging: fix installed /usr/bin/chaddr ModuleNotFoundError when
+    /usr/bin/env python3 resolves to a venv; generate launcher from
+    chaddr.py.in with /usr/bin/python3 shebang and embedded PY_INSTALL_DIR,
+    and fall back to system dist-packages from the source-tree launcher
+  * Public IP: try providers in priority waves (AWS checkip / ipify /
+    icanhazip / ident.me first) with a larger fallback set and more robust
+    response parsing so status-bar client IP fetch succeeds more often
+  * Privilege: in GUI mode prefer pkexec/gksudo/kdesudo over TTY sudo, with
+    a wx password dialog feeding sudo -S as fallback for protected writes
+  * Profiles: addr-history is one address per line with optional
+    YYYY-MM-DD HH:MM:SS timestamps; legacy multi-IP lines still load and are
+    migrated on append; expose ordered from/type instruction AST; accept
+    changelog: <path> shorthand; show complete registered nameserver host lists
+  * Resource type: changelog — bump Debian changelog version on apply and
+    record "chaddr IPv4/IPv6 from <old> to <new>", reusing prior dist/author
+  * GUI: profile dropdown; Instructions | Addresses notebook (Addresses
+    default); session-toggleable instructions filter diagnose/renew/apply;
+    sortable Type/Family/Address/Timestamp table with numeric IP and datetime
+    sort, ▲/▼ headers, and gray history rows except current resolve
+  * GUI: stop freezes from DNS/cloud work on the UI thread before operations;
+    de-duplicate spare address sets; Ctrl+PgUp/PgDn for detail tabs;
+    Alt+Left/Right for profiles; resolve timestamps; right-click status-bar
+    remote IP to copy with notification
+
+ -- Lenik (谢继雷) <lenik@bodz.net>  Mon, 27 Jul 2026 14:59:34 +0800
+
 chaddr (1.0.3) testing; urgency=medium
 
   * Renew: always propagate the freshly allocated Elastic IP; the address-panel
