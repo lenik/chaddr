@@ -1,8 +1,10 @@
-"""Address list panel with CRUD and profile actions."""
+"""Address list panel with CRUD and sortable columns."""
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Callable
+from datetime import datetime
 
 import wx
 
@@ -13,7 +15,7 @@ from chaddr.address import (
     is_ipv4,
     is_ipv6,
 )
-from chaddr.gui.theme import mono_font, ui_font
+from chaddr.gui.theme import mono_font, spare_entry_colour, ui_font
 
 
 def _action_button_height(parent: wx.Window) -> int:
@@ -39,6 +41,15 @@ GTK_BUTTON_MARGIN = 14
 ICON_BUTTON_SIDE = 32
 BTN_ROW_BORDER = 2
 
+_COLUMNS = (
+    ("Type", 90),
+    ("Family", 70),
+    ("Address", 170),
+    ("Timestamp", 150),
+)
+_SORT_ASC = " ▲"
+_SORT_DESC = " ▼"
+
 
 def _btn_row_flags() -> int:
     if hasattr(wx, "FIX_MINSIZE"):
@@ -62,35 +73,133 @@ def _icon_button(parent: wx.Window, art_id: str, tooltip: str, height: int) -> w
     return btn
 
 
-class AddressListBox(wx.ListBox):
+def _address_sort_key(address: str) -> tuple:
+    try:
+        ip = ipaddress.ip_address(address.strip())
+        return (0 if ip.version == 4 else 1, int(ip))
+    except ValueError:
+        return (2, address.lower())
+
+
+def _timestamp_sort_key(timestamp: str) -> tuple:
+    text = timestamp.strip()
+    if not text:
+        return (1, datetime.min)
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return (0, datetime.strptime(text, fmt))
+        except ValueError:
+            continue
+    return (2, text)
+
+
+class AddressListCtrl(wx.ListCtrl):
     def __init__(self, parent: wx.Window) -> None:
-        super().__init__(parent, style=wx.LB_EXTENDED)
+        super().__init__(parent, style=wx.LC_REPORT | wx.LC_HRULES | wx.LC_VRULES)
         self._entries: list[AddressEntry] = []
+        self._sort_column = 0
+        self._sort_ascending = True
         self.SetMinSize((280, 120))
+        for index, (label, width) in enumerate(_COLUMNS):
+            self.InsertColumn(index, label, width=width)
+        self._refresh_column_headers()
+        self.Bind(wx.EVT_LIST_COL_CLICK, self._on_column_click)
 
     def set_entries(self, entries: list[AddressEntry]) -> None:
         self._entries = list(entries)
-        self.Freeze()
-        try:
-            self.Clear()
-            for entry in self._entries:
-                self.Append(entry.display())
-            if self._entries:
-                self.SetSelection(0)
-        finally:
-            self.Thaw()
+        self._apply_sort()
+        self._rebuild()
 
     def get_entries(self) -> list[AddressEntry]:
         return list(self._entries)
 
     def selected_indices(self) -> list[int]:
-        return list(self.GetSelections())
+        indices: list[int] = []
+        item = self.GetFirstSelected()
+        while item != -1:
+            indices.append(item)
+            item = self.GetNextSelected(item)
+        return indices
 
     def select_indices(self, indices: list[int]) -> None:
-        self.SetSelection(-1)
+        for index in range(self.GetItemCount()):
+            self.Select(index, on=False)
         for index in indices:
-            if 0 <= index < len(self._entries):
-                self.SetSelection(index)
+            if 0 <= index < self.GetItemCount():
+                self.Select(index, on=True)
+                self.EnsureVisible(index)
+
+    def _entry_sort_key(self, entry: AddressEntry) -> tuple:
+        if self._sort_column == 0:
+            return (entry.source.lower(),)
+        if self._sort_column == 1:
+            # Family / IP version: IPv4 before IPv6, then numeric address.
+            version = 4 if entry.family == "IPv4" else 6 if entry.family == "IPv6" else 9
+            return (version, _address_sort_key(entry.address))
+        if self._sort_column == 2:
+            return _address_sort_key(entry.address)
+        if self._sort_column == 3:
+            return _timestamp_sort_key(entry.timestamp)
+        return (entry.source.lower(),)
+
+    def _apply_sort(self) -> None:
+        reverse = not self._sort_ascending
+        self._entries.sort(key=self._entry_sort_key, reverse=reverse)
+
+    def _refresh_column_headers(self) -> None:
+        for index, (label, _width) in enumerate(_COLUMNS):
+            item = self.GetColumn(index)
+            if index == self._sort_column:
+                marker = _SORT_ASC if self._sort_ascending else _SORT_DESC
+                item.SetText(label + marker)
+            else:
+                item.SetText(label)
+            self.SetColumn(index, item)
+
+    def _rebuild(self) -> None:
+        resolved = {entry.address for entry in self._entries if entry.source == "resolve"}
+        gray = spare_entry_colour()
+        self.Freeze()
+        try:
+            self.DeleteAllItems()
+            for index, entry in enumerate(self._entries):
+                self.InsertItem(index, entry.source)
+                self.SetItem(index, 1, entry.family)
+                self.SetItem(index, 2, entry.address)
+                self.SetItem(index, 3, entry.timestamp)
+                if entry.source == "history" and entry.address not in resolved:
+                    self.SetItemTextColour(index, gray)
+                else:
+                    self.SetItemTextColour(index, wx.NullColour)
+            if self._entries:
+                self.Select(0, on=True)
+        finally:
+            self.Thaw()
+        self._refresh_column_headers()
+
+    def _on_column_click(self, evt: wx.ListEvent) -> None:
+        column = evt.GetColumn()
+        if column < 0:
+            return
+        if column == self._sort_column:
+            self._sort_ascending = not self._sort_ascending
+        else:
+            self._sort_column = column
+            self._sort_ascending = True
+        selected_addresses = {
+            (self._entries[i].family, self._entries[i].address)
+            for i in self.selected_indices()
+            if 0 <= i < len(self._entries)
+        }
+        self._apply_sort()
+        self._rebuild()
+        if selected_addresses:
+            indices = [
+                index
+                for index, entry in enumerate(self._entries)
+                if (entry.family, entry.address) in selected_addresses
+            ]
+            self.select_indices(indices)
 
 
 class AddressEntryDialog(wx.Dialog):
@@ -108,7 +217,7 @@ class AddressEntryDialog(wx.Dialog):
         sizer = wx.BoxSizer(wx.VERTICAL)
 
         family_row = wx.BoxSizer(wx.HORIZONTAL)
-        family_row.Add(wx.StaticText(panel, label="Type:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        family_row.Add(wx.StaticText(panel, label="Family:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         self.family_choice = wx.Choice(panel, choices=["IPv4", "IPv6"])
         self.family_choice.SetSelection(0)
         family_row.Add(self.family_choice, 1, wx.EXPAND)
@@ -122,7 +231,7 @@ class AddressEntryDialog(wx.Dialog):
         sizer.Add(addr_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
 
         source_row = wx.BoxSizer(wx.HORIZONTAL)
-        source_row.Add(wx.StaticText(panel, label="Source:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        source_row.Add(wx.StaticText(panel, label="Type:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         self.source_ctrl = wx.TextCtrl(panel, value="manual")
         self.source_ctrl.SetFont(ui_font(10))
         source_row.Add(self.source_ctrl, 1, wx.EXPAND)
@@ -167,7 +276,7 @@ class AddressListPanel(wx.Panel):
         self.SetFont(ui_font(10))
 
         sizer = wx.BoxSizer(wx.VERTICAL)
-        self.listbox = AddressListBox(self)
+        self.listbox = AddressListCtrl(self)
         self.listbox.SetFont(mono_font(10))
         sizer.Add(self.listbox, 1, wx.EXPAND)
 
@@ -179,21 +288,15 @@ class AddressListPanel(wx.Panel):
         for btn in (self.add_btn, self.edit_btn, self.delete_btn):
             btn_row.Add(btn, 0, _btn_row_flags(), BTN_ROW_BORDER)
 
-        btn_row.AddStretchSpacer(1)
-        self.diagnose_btn = _icon_button(self, wx.ART_FIND, "Diagnose", btn_height)
-        self.renew_btn = _icon_button(self, wx.ART_REDO, "Renew", btn_height)
-        self.apply_btn = _icon_button(self, wx.ART_TICK_MARK, "Apply", btn_height)
-        for btn in (self.diagnose_btn, self.renew_btn, self.apply_btn):
-            btn_row.Add(btn, 0, _btn_row_flags(), BTN_ROW_BORDER)
-
         sizer.Add(btn_row, 0, wx.EXPAND | wx.TOP, 4)
-        self.SetMinSize((_button_row_min_width(6), -1))
+        self.SetMinSize((_button_row_min_width(3), -1))
         self.SetSizer(sizer)
 
         self.add_btn.Bind(wx.EVT_BUTTON, self._on_add)
         self.edit_btn.Bind(wx.EVT_BUTTON, self._on_edit)
         self.delete_btn.Bind(wx.EVT_BUTTON, self._on_delete)
-        self.listbox.Bind(wx.EVT_LISTBOX, self._on_selection_changed)
+        self.listbox.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_selection_changed)
+        self.listbox.Bind(wx.EVT_LIST_ITEM_DESELECTED, self._on_selection_changed)
 
     def set_on_changed(self, callback: Callable[[], None] | None) -> None:
         self._on_changed = callback
@@ -221,13 +324,15 @@ class AddressListPanel(wx.Panel):
     def set_entries(self, entries: list[AddressEntry]) -> None:
         self._entries = list(entries)
         self.listbox.set_entries(self._entries)
+        self._entries = self.listbox.get_entries()
         self._emit_changed()
 
     def get_entries(self) -> list[AddressEntry]:
         return self.listbox.get_entries()
 
     def get_selected_entries(self) -> list[AddressEntry]:
-        return [self._entries[i] for i in self.listbox.selected_indices() if 0 <= i < len(self._entries)]
+        entries = self._entries
+        return [entries[i] for i in self.listbox.selected_indices() if 0 <= i < len(entries)]
 
     def get_apply_address_set(self) -> AddressSet:
         return address_set_from_selection(self._entries, self.listbox.selected_indices())
@@ -241,9 +346,20 @@ class AddressListPanel(wx.Panel):
 
     def _refresh_list(self, *, preserve_selection: bool = True) -> None:
         selected = self.listbox.selected_indices() if preserve_selection else []
+        selected_keys = {
+            (self._entries[i].family, self._entries[i].address)
+            for i in selected
+            if 0 <= i < len(self._entries)
+        }
         self.listbox.set_entries(self._entries)
-        if selected:
-            self.listbox.select_indices(selected)
+        self._entries = self.listbox.get_entries()
+        if selected_keys:
+            indices = [
+                index
+                for index, entry in enumerate(self._entries)
+                if (entry.family, entry.address) in selected_keys
+            ]
+            self.listbox.select_indices(indices)
 
     def _on_selection_changed(self, _evt) -> None:
         self._emit_changed()
@@ -294,7 +410,21 @@ class AddressListPanel(wx.Panel):
             return
         dialog.Destroy()
         if not editable:
-            entry = AddressEntry(current.family, current.address, current.source)
+            entry = AddressEntry(
+                current.family,
+                current.address,
+                current.source,
+                detail=current.detail,
+                timestamp=current.timestamp,
+            )
+        else:
+            entry = AddressEntry(
+                entry.family,
+                entry.address,
+                entry.source,
+                detail=current.detail,
+                timestamp=current.timestamp,
+            )
         if any(
             idx != index and item.family == entry.family and item.address == entry.address
             for idx, item in enumerate(self._entries)
