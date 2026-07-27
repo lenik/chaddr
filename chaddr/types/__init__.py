@@ -10,6 +10,7 @@ from chaddr.types.registered_nameserver import RegisteredNameserverHandler
 from chaddr.types.hosts_file import HostsFileHandler
 from chaddr.types.bind_db import BindDbHandler
 from chaddr.types.plain_file import PlainFileHandler
+from chaddr.types.changelog import ChangelogHandler
 
 HANDLERS: dict[str, type[AddressTypeHandler]] = {
     "aws elastic ip": AwsElasticIpHandler,
@@ -19,6 +20,7 @@ HANDLERS: dict[str, type[AddressTypeHandler]] = {
     "zone file": BindDbHandler,
     "bind db": BindDbHandler,
     "file": PlainFileHandler,
+    "changelog": ChangelogHandler,
 }
 
 
