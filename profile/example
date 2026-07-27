@@ -1,8 +1,9 @@
 # chaddr example profile — copy to ~/.config/chaddr/profile/ and edit before use.
 description: Example relay
 version: 1
-addr-history: 198.51.100.4 2001:db8::1 \
-  203.0.113.10
+addr-history: 198.51.100.4 2026-06-24 12:00:00
+addr-history: 2001:db8::1 2026-06-24 12:00:00
+addr-history: 203.0.113.10 2026-06-25 09:15:00
 
 from: resolve
 resolve: relay.example.com
@@ -23,3 +24,5 @@ path: /etc/hosts
 
 type: zone file
 path: /var/cache/bind/db.example.com
+
+changelog: /path/to/debian/changelog

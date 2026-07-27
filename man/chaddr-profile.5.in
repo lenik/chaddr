@@ -73,13 +73,26 @@ Short human-readable label shown in the GUI profile list.
 .B version: \(laTEXT\(ra
 Optional version string shown in the GUI profile list.
 .TP
-.B addr-history: \(laADDRS\(ra
-Whitespace-separated historical IPv4 and/or IPv6 addresses. IPv4 and IPv6 are
-detected automatically. These addresses are treated like spare
+.B addr-history: \(laADDR\(ra [\(laTIMESTAMP\(ra]
+Historical IPv4/IPv6 address, one address per line. Optional timestamp uses
+.B YYYY-MM-DD HH:MM:SS
+(local time). Legacy single-line
+.B addr-history: ip1 ip2 ...
+is still accepted and migrated to one line per address when the profile is
+updated. These addresses are treated like spare
 .BR \-\-old-ip
 values when matching old IPs in
 .BR hosts (5)
 entries and BIND zone files during diagnose and apply.
+.PP
+Example:
+.PP
+.RS
+.nf
+addr-history: 198.51.100.4 2026-06-24 12:00:00
+addr-history: 2001:db8::1 2026-06-24 12:00:00
+.fi
+.RE
 .SH FROM BLOCK
 The optional
 .B from
@@ -269,6 +282,34 @@ matched. Spare/old IP candidates from
 blocks, and
 .B \-\-old-ip
 determine which literals to replace.
+.SS changelog
+Append a Debian-style changelog entry when an IP address is applied.
+.TP
+.B path: \(laFILE\(ra
+Path to the
+.I debian/changelog
+file.
+.PP
+Shorthand form is also accepted:
+.PP
+.RS
+.B changelog: \(laFILE\(ra
+.RE
+.PP
+On apply, the handler bumps the last numeric component of the top version,
+reuses the previous distribution name (falling back past
+.B UNRELEASED
+when needed), keeps the previous author trailer, and inserts a new entry:
+.PP
+.RS
+.nf
+package (1.0.106) testing; urgency=medium
+
+  * chaddr IPv4 from <old> to <new>
+
+ -- Author Name <email>  Day, DD Mon YYYY HH:MM:SS +ZZZZ
+.fi
+.RE
 .SH ACTIONS BY TYPE
 .TP
 .B Diagnose
@@ -284,8 +325,9 @@ only.
 .B registered nameserver ,
 .BR hosts file ,
 .BR zone file ,
+.BR file ,
 and
-.BR file .
+.BR changelog .
 .SH EXAMPLE
 .PP
 .RS
@@ -293,8 +335,9 @@ and
 # chaddr example profile
 description: Example relay
 version: 1
-addr-history: 198.51.100.4 2001:db8::1 \\
-  203.0.113.10
+addr-history: 198.51.100.4 2026-06-24 12:00:00
+addr-history: 2001:db8::1 2026-06-24 12:00:00
+addr-history: 203.0.113.10 2026-06-25 09:15:00
 
 from: resolve
 resolve: relay.example.com

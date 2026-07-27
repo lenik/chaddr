@@ -72,6 +72,7 @@ class AddressEntry:
     address: str
     source: str = "manual"
     detail: str = ""
+    timestamp: str = ""
 
     def display(self) -> str:
         if self.detail:
@@ -84,9 +85,9 @@ class AddressEntry:
         return cls(family, old_ip, "old-ip")
 
     @classmethod
-    def from_history_ip(cls, ip: str) -> AddressEntry:
+    def from_history_ip(cls, ip: str, timestamp: str = "") -> AddressEntry:
         family = "IPv4" if is_ipv4(ip) else "IPv6"
-        return cls(family, ip, "history")
+        return cls(family, ip, "history", timestamp=timestamp.strip())
 
     @classmethod
     def from_instance_ip(cls, ip: str, instance_id: str = "") -> AddressEntry:
@@ -100,12 +101,13 @@ class AddressEntry:
         source: str = "resolve",
         *,
         detail: str = "",
+        timestamp: str = "",
     ) -> list[AddressEntry]:
         entries: list[AddressEntry] = []
         if addresses.ipv4:
-            entries.append(cls("IPv4", addresses.ipv4, source, detail=detail))
+            entries.append(cls("IPv4", addresses.ipv4, source, detail=detail, timestamp=timestamp))
         if addresses.ipv6:
-            entries.append(cls("IPv6", addresses.ipv6, source, detail=detail))
+            entries.append(cls("IPv6", addresses.ipv6, source, detail=detail, timestamp=timestamp))
         return entries
 
     @classmethod
@@ -178,6 +180,14 @@ def spare_sets_from_entries(entries: list[AddressEntry]) -> list[AddressSet]:
     return sets
 
 
+def unique_spare_sets(*groups: list[AddressSet]) -> list[AddressSet]:
+    """Flatten AddressSet groups into a de-duplicated IPv4-then-IPv6 list."""
+    spare = SpareFromAddresses.from_address_sets(*(item for group in groups for item in group))
+    result: list[AddressSet] = [AddressSet(ipv4=ip) for ip in spare.ipv4]
+    result.extend(AddressSet(ipv6=ip) for ip in spare.ipv6)
+    return result
+
+
 def merge_address_entries(
     existing: list[AddressEntry],
     incoming: list[AddressEntry],
@@ -198,6 +208,11 @@ def merge_address_entries(
     for entry in incoming:
         key = entry_key(entry)
         if key in known:
+            # Prefer a non-empty timestamp when merging the same address.
+            for index, item in enumerate(kept):
+                if entry_key(item) == key and entry.timestamp and not item.timestamp:
+                    kept[index] = entry
+                    break
             continue
         kept.append(entry)
         known.add(key)
