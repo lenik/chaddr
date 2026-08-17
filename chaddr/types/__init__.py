@@ -11,6 +11,7 @@ from chaddr.types.hosts_file import HostsFileHandler
 from chaddr.types.bind_db import BindDbHandler
 from chaddr.types.plain_file import PlainFileHandler
 from chaddr.types.changelog import ChangelogHandler
+from chaddr.types.router import RouterHandler
 
 HANDLERS: dict[str, type[AddressTypeHandler]] = {
     "aws elastic ip": AwsElasticIpHandler,
@@ -21,6 +22,7 @@ HANDLERS: dict[str, type[AddressTypeHandler]] = {
     "bind db": BindDbHandler,
     "file": PlainFileHandler,
     "changelog": ChangelogHandler,
+    "router": RouterHandler,
 }
 
 

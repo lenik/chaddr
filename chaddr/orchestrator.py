@@ -269,7 +269,7 @@ def _spare_from_sets(accumulated: list[AddressSet]) -> SpareFromAddresses:
 
 # Also grow spare from cloud / elastic IP diagnose results when those types are selected.
 def _extend_spare_from_addresses(accumulated: list[AddressSet], result: DiagnoseResult) -> None:
-    if result.type_name in ("zone file", "bind db", "hosts file", "file", "changelog"):
+    if result.type_name in ("zone file", "bind db", "hosts file", "file", "changelog", "router"):
         return
     for ip in result.addresses:
         if is_ipv4(ip):

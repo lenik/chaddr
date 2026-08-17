@@ -14,6 +14,7 @@ Package: chaddr
 Architecture: all
 Depends: python3 (>= 3.11),
          python3-boto3,
+         python3-paramiko,
          python3-requests,
          python3-socks,
          python3-wxgtk4.0,
@@ -22,8 +23,9 @@ Depends: python3 (>= 3.11),
 Recommends: bash-completion
 Description: change or reallocate profile-managed IP addresses
  chaddr coordinates updates across AWS/Aliyun Elastic IP, Namecheap
- registered nameservers, hosts files, and BIND zone databases from
- declarative profile files. It provides a wxWidgets GUI and a scriptable CLI.
+ registered nameservers, hosts files, BIND zone databases, and OpenWrt
+ router Shadowsocks remote servers from declarative profile files.
+ It provides a wxWidgets GUI and a scriptable CLI.
  .
  Protected file updates from the GUI may prompt for elevation through
  pkexec, gksudo, or kdesudo.

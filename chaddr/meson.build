@@ -30,6 +30,7 @@ chaddr_py_sources = files(
   'types/hosts_file.py',
   'types/plain_file.py',
   'types/registered_nameserver.py',
+  'types/router.py',
 )
 
 configure_file(

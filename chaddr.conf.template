@@ -17,5 +17,7 @@
   "client_ip_expire": "",
 
   "aliyun_access_key_id": "",
-  "aliyun_access_key_secret": ""
+  "aliyun_access_key_secret": "",
+
+  "router_password": ""
 }
