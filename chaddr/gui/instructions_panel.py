@@ -11,7 +11,7 @@ from chaddr.profile import ProfileInstruction
 
 
 class InstructionsPanel(wx.Panel):
-    """Toggleable list of profile instructions; default is all selected."""
+    """Toggleable list of profile instructions; optional ones start unchecked."""
 
     def __init__(self, parent: wx.Window) -> None:
         super().__init__(parent)
@@ -39,7 +39,7 @@ class InstructionsPanel(wx.Panel):
             self.listbox.Clear()
             for item in self._instructions:
                 index = self.listbox.Append(item.summary)
-                self.listbox.Check(index, True)
+                self.listbox.Check(index, not item.optional)
         finally:
             self.listbox.Thaw()
         self._notify()

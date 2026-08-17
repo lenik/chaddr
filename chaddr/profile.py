@@ -314,6 +314,13 @@ class ProfileInstruction:
     summary: str
     from_index: int | None = None
     entry_index: int | None = None
+    optional: bool = False
+
+
+def profile_option_truthy(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in ("1", "true", "yes", "on")
 
 
 @dataclass
@@ -729,6 +736,7 @@ _TYPE_SUMMARY_LABELS = {
     "aliyun elastic ip": "aliyun elastic ip",
     "file": "file",
     "changelog": "changelog",
+    "router": "router",
 }
 
 
@@ -760,6 +768,14 @@ def _instruction_detail(type_name: str, options: dict[str, str], *, kind: str) -
             return ", ".join(hosts)
         return options.get("domain") or options.get("ns_domain") or options.get("api") or ""
 
+    if lower == "router":
+        parts = [
+            options.get("system") or "",
+            options.get("config") or "",
+            options.get("host") or options.get("gateway") or "",
+        ]
+        return " ".join(part for part in parts if part).strip()
+
     for key in ("path", "changelog", "zone", "host", "region", "api"):
         value = options.get(key)
         if value:
@@ -777,7 +793,10 @@ def _format_instruction_summary(kind: str, type_name: str, options: dict[str, st
             label = label[: -len(" instance")].strip() or label
         return f"from {label} {detail}".rstrip()
     label = _TYPE_SUMMARY_LABELS.get(canonical_ws_tokens(type_name).lower(), type_name)
-    return f"{label} {detail}".rstrip()
+    summary = f"{label} {detail}".rstrip()
+    if profile_option_truthy(options.get("optional")):
+        summary = f"{summary} (optional)"
+    return summary
 
 
 def list_profile_instructions(profile: Profile) -> list[ProfileInstruction]:
@@ -801,13 +820,16 @@ def list_profile_instructions(profile: Profile) -> list[ProfileInstruction]:
 
     def add_type(entry: ProfileEntry) -> None:
         nonlocal entry_index
+        optional = profile_option_truthy(entry.options.get("optional"))
+        summary = _format_instruction_summary("type", entry.type, entry.options)
         instructions.append(
             ProfileInstruction(
                 key=f"type:{entry_index}",
                 kind="type",
                 type_name=entry.type,
-                summary=_format_instruction_summary("type", entry.type, entry.options),
+                summary=summary,
                 entry_index=entry_index,
+                optional=optional,
             )
         )
         entry_index += 1
