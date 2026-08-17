@@ -1,3 +1,18 @@
+chaddr (1.0.5) testing; urgency=medium
+
+  * Resource type: router — diagnose and apply OpenWrt Shadowsocks remote
+    server addresses over SSH/UCI (system: openwrt, config: shadowsocks
+    remote server); host defaults to the IPv4 default gateway; password from
+    the profile or router_password in chaddr.conf; depends on python3-paramiko
+  * Profiles: optional: true (also yes/on/1) on any type block lists it in
+    the GUI Instructions tab deselected by default; the CLI still runs it
+    unless an instruction filter is applied
+  * Documentation and packaging: README, chaddr-profile(5), profile/example,
+    chaddr.conf.template, and Debian package description cover router and
+    optional instructions
+
+ -- Lenik (谢继雷) <lenik@bodz.net>  Mon, 17 Aug 2026 11:15:00 +0800
+
 chaddr (1.0.4) testing; urgency=medium
 
   * Packaging: fix installed /usr/bin/chaddr ModuleNotFoundError when
