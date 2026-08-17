@@ -26,3 +26,10 @@ type: zone file
 path: /var/cache/bind/db.example.com
 
 changelog: /path/to/debian/changelog
+
+type: router
+optional: true
+system: openwrt
+user: root
+password: secret
+config: shadowsocks remote server

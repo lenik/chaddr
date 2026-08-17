@@ -171,6 +171,16 @@ Each resource block begins with
 where
 .I NAME
 is one of the supported types below (case-insensitive).
+.PP
+Any type block may include
+.B optional: true
+(also
+.BR yes ,
+.BR on ,
+or
+.BR 1 ).
+In the GUI Instructions tab such blocks start deselected; the CLI still runs
+them unless an instruction filter is applied.
 .SS aws elastic ip
 Diagnose and renew (reallocate) an AWS Elastic IP associated with an EC2
 instance.
@@ -310,6 +320,67 @@ package (1.0.106) testing; urgency=medium
  -- Author Name <email>  Day, DD Mon YYYY HH:MM:SS +ZZZZ
 .fi
 .RE
+.SS router
+Diagnose and manually apply IP changes to a LAN router over SSH.
+Currently supports OpenWrt UCI updates for Shadowsocks remote server
+addresses.
+.TP
+.B system: openwrt
+Router OS (required; only
+.B openwrt
+is supported).
+.TP
+.B config: shadowsocks remote server
+Update UCI
+.B server
+sections under
+.I shadowsocks-libev
+or
+.IR shadowsocks .
+.TP
+.B user: \(laNAME\(ra
+SSH username (default
+.BR root ).
+.TP
+.B password: \(laSECRET\(ra
+SSH password. May instead be supplied as
+.B router_password
+in
+.IR chaddr.conf .
+.TP
+.B host: \(laADDR\(ra
+.TP
+.B gateway: \(laADDR\(ra
+Optional router address. When omitted, the IPv4 default gateway from
+.I /proc/net/route
+is used.
+.TP
+.B port: \(laN\(ra
+.TP
+.B ssh_port: \(laN\(ra
+Optional SSH port (default
+.BR 22 ).
+.TP
+.B optional: true
+When set, the instruction is listed in the GUI Instructions tab but
+deselected by default (CLI still runs it unless filtered).
+.PP
+Requires
+.B python3-paramiko
+for SSH.
+.PP
+Example:
+.PP
+.RS
+.nf
+type: router
+optional: true
+system: openwrt
+user: root
+password: secret
+config: shadowsocks remote server
+.fi
+.RE
 .SH ACTIONS BY TYPE
 .TP
 .B Diagnose
@@ -326,8 +397,9 @@ only.
 .BR hosts file ,
 .BR zone file ,
 .BR file ,
+.BR changelog ,
 and
-.BR changelog .
+.BR router .
 .SH EXAMPLE
 .PP
 .RS
@@ -358,6 +430,13 @@ path: /etc/hosts
 
 type: zone file
 path: /var/cache/bind/db.example.com
+
+type: router
+optional: true
+system: openwrt
+user: root
+password: secret
+config: shadowsocks remote server
 .fi
 .RE
 .SH SEE ALSO

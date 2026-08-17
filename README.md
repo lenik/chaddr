@@ -2,7 +2,8 @@
 
 Change or reallocate IP addresses defined in profile files. chaddr coordinates
 AWS and Aliyun Elastic IPs, Namecheap registered nameservers, `/etc/hosts` (and
-similar files), and BIND zone databases from a single profile.
+similar files), BIND zone databases, and OpenWrt Shadowsocks remote servers from
+a single profile.
 
 Homepage: https://github.com/lenik/chaddr
 
@@ -21,12 +22,12 @@ Homepage: https://github.com/lenik/chaddr
 
 - Python 3.11+
 - wxPython 4.2+ (GUI)
-- boto3, requests, PySocks
+- boto3, requests, PySocks, paramiko (for `type: router`)
 
 On Debian/Ubuntu you can install dependencies with:
 
 ```bash
-sudo apt install python3 python3-wxgtk4.0 python3-boto3 python3-requests python3-socks
+sudo apt install python3 python3-wxgtk4.0 python3-boto3 python3-requests python3-socks python3-paramiko
 ```
 
 For privileged writes, install at least one of: `policykit-1` (`pkexec`),
@@ -104,6 +105,13 @@ path: /var/cache/bind/db.example.com
 
 type: file
 path: /etc/apt/sources.list.d/example.sources
+
+type: router
+optional: true
+system: openwrt
+user: root
+password: secret
+config: shadowsocks remote server
 ```
 
 Supported `type` values:
@@ -116,6 +124,10 @@ Supported `type` values:
 | `hosts file` | Diagnose, apply (replace old IP in file) |
 | `zone file` | Diagnose, apply (replace A record IP) |
 | `file` | Diagnose, apply (replace IP literals in plain text) |
+| `router` | Diagnose, apply (OpenWrt Shadowsocks remote server via SSH) |
+
+Add `optional: true` on any `type:` block to list it in the GUI Instructions tab
+deselected by default (CLI still runs it unless filtered).
 
 Use `from: resolve` with `resolve: hostname` to discover current addresses.
 Optional `from: ec2 instance` / `from: aliyun instance` blocks (with `instance:`
