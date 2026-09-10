@@ -82,7 +82,8 @@ Profiles are plain-text files in `~/.config/chaddr/profile/` by default. Example
 ```
 description: Example relay
 version: 1
-addr-history: 198.51.100.4 2001:db8::1
+history-addr: 198.51.100.4 "2026-06-24 12:00:00"
+history-addr: 2001:db8::1 "2026-06-24 12:00:00"
 
 from: resolve
 resolve: relay.example.com
@@ -130,17 +131,24 @@ Add `optional: true` on any `type:` block to list it in the GUI Instructions tab
 deselected by default (CLI still runs it unless filtered).
 
 Use `from: resolve` with `resolve: hostname` to discover current addresses.
-Optional `from: ec2 instance` / `from: aliyun instance` blocks (with `instance:`
-ID) read the public IPv4 from the matching elastic-IP resource block in the same
-profile. A profile may contain multiple `from:` blocks; each contributes
-candidate addresses.
+Optional `from: ec2 nic` / `from: aliyun nic` (with `nic:` ENI id), or
+`from: ec2` / `from: aliyun` (aliases: `ec2 instance`, `aliyun instance`, with
+`instance:` ID) read public IPv4 from the matching elastic-IP resource block.
+Prefer NIC scope when an instance has multiple ENIs. Instance-scope renew only
+updates public IPs that also appear in `history-addr` / `addr-history` (or GUI spare/old-ip).
+Renew keeps each EIP on the same private address slot (primary or secondary).
+GUI address sources are labeled `ec2`, `ec2 nic`, `aliyun`, `aliyun nic`.
+A profile may contain multiple `from:` blocks; each contributes candidate
+addresses.
 
 Optional header fields before the first `from:` / `type:` block include `description:`,
-`version:`, and `addr-history:` (whitespace-separated historical IPv4/IPv6 addresses).
+`version:`, and `history-addr:` (one address per line with quoted insert/event times).
+Legacy `addr-history:` is still read and rewritten as `history-addr:` on save.
 Lines may continue on the next line with a trailing `\`.
-`addr-history` works like `--old-ip` when matching old IPs in hosts files, zone
+`history-addr` works like `--old-ip` when matching old IPs in hosts files, zone
 files, and plain `file` entries.
-The GUI and CLI accept spare “from” addresses to locate old IPs in editable files.
+The GUI History tab edits this list; CLI/GUI spare “from” addresses also help
+locate old IPs in editable files.
 
 ## CLI usage
 
@@ -153,7 +161,7 @@ chaddr [OPTIONS] [PROFILE...]
 | `-c`, `--config FILE` | JSON config file |
 | `--proxy URL` | Proxy for API calls |
 | `--diagnose` | Run checks only |
-| `-A`, `--addresses` | List candidate addresses with source labels (history, resolve, instance, …) |
+| `-A`, `--addresses` | List candidate addresses with source labels (history, resolve, ec2 nic, …) |
 | `--renew` | Reallocate elastic IPs |
 | `--apply IP` | Manual apply (IPv4 or IPv6) |
 | `--apply-ipv4`, `--apply-ipv6` | Manual apply by family |
@@ -172,12 +180,16 @@ chaddr --renew example
 
 ## GUI usage
 
-- **Addresses** — single list with sources (`history`, `resolve`, `instance`,
-  `manual`, …); multi-select at most one IPv4 and one IPv6 for Apply; loads
+- **Addresses** — single list with sources (`history`, `resolve`, `ec2`,
+  `ec2 nic`, `manual`, …); multi-select at most one IPv4 and one IPv6 for Apply; loads
   progressively when a profile is selected (status-bar progress and stop)
-- **Diagnose** — check all resources; opens the right pane on the Diagnostics tab
+- **Diagnose** — check all resources; when an address is selected in the
+  Addresses list it is the diagnose target (“address to be used”); opens the
+  right pane on the Diagnostics tab
+- **History** — edit profile `history-addr` entries (insert/event times); Save
+  rewrites the profile header (migrates legacy `addr-history`)
 - **Renew** — reallocate elastic IPs where supported; appends new IPs to profile
-  `addr-history`
+  `history-addr`
 - **Apply** — write selected addresses to manual resource types (single profile);
   opens the Logging tab for the profile; verbose per-handler logging
 - **File → Browse…** — switch to another profile directory

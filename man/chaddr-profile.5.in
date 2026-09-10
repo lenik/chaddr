@@ -73,24 +73,32 @@ Short human-readable label shown in the GUI profile list.
 .B version: \(laTEXT\(ra
 Optional version string shown in the GUI profile list.
 .TP
-.B addr-history: \(laADDR\(ra [\(laTIMESTAMP\(ra]
-Historical IPv4/IPv6 address, one address per line. Optional timestamp uses
-.B YYYY-MM-DD HH:MM:SS
-(local time). Legacy single-line
-.B addr-history: ip1 ip2 ...
-is still accepted and migrated to one line per address when the profile is
-updated. These addresses are treated like spare
+.B history-addr: \(laADDR\(ra \(dq\(laINSERTTIME\(ra\(dq [\(dq\(laEVENTTIME\(ra\(dq]
+Canonical historical address entry (may appear multiple times).
+.I INSERTTIME
+is when the record was added (quoted
+.BR "YYYY-MM-DD HH:MM:SS" ).
+.I EVENTTIME
+is optional business time for the address.
+These addresses are treated like spare
 .BR \-\-old-ip
 values when matching old IPs in
 .BR hosts (5)
 entries and BIND zone files during diagnose and apply.
+.TP
+.B addr-history: \(laADDR\(ra [\(laTIMESTAMP\(ra]
+Legacy form (still read). One address per line with optional unquoted
+timestamp, or a single line with multiple IPs. On save (renew or History tab),
+legacy lines are rewritten as
+.B history-addr
+entries.
 .PP
 Example:
 .PP
 .RS
 .nf
-addr-history: 198.51.100.4 2026-06-24 12:00:00
-addr-history: 2001:db8::1 2026-06-24 12:00:00
+history-addr: 198.51.100.4 "2026-06-24 12:00:00"
+history-addr: 2001:db8::1 "2026-06-24 12:00:00" "2026-06-25 09:15:00"
 .fi
 .RE
 .SH FROM BLOCK
@@ -117,13 +125,53 @@ resolve: relay.example.com
 .fi
 .RE
 .TP
-.B from: ec2 instance
-Use the primary public IPv4 of an EC2 instance as a from-source address.
+.B from: ec2 nic
+Use public IPv4 address(es) on a specific Elastic Network Interface (ENI).
+Prefer this when the instance has multiple NICs. Renew keeps the association
+on the same private address slot (primary or secondary) of that NIC.
 Requires a matching
 .B aws elastic ip
 resource block in the same profile (for
 .BR region: ).
 .TP
+.B nic: \(laENI-ID\(ra
+.TP
+.B eni: \(laENI-ID\(ra
+.TP
+.B network_interface: \(laENI-ID\(ra
+ENI id for
+.B from: ec2 nic
+/
+.BR "from: aliyun nic" .
+.PP
+Example:
+.PP
+.RS
+.nf
+from: ec2 nic
+nic: eni-0123456789abcdef0
+.fi
+.RE
+.TP
+.B from: ec2
+.TQ
+.B from: ec2 instance
+Discover public IPv4 addresses on an EC2 instance (every NIC). Renew only
+reallocates public IPs that also appear in profile
+.B history-addr
+/
+.B addr-history
+(or GUI spare/old-ip). Unmatched public IPs on other ENIs are left alone.
+Prefer
+.B from: ec2 nic
+when targeting a single NIC.
+Requires a matching
+.B aws elastic ip
+resource block (for
+.BR region: ).
+.TP
+.B from: aliyun
+.TQ
 .B from: aliyun instance
 Use the public IPv4 of an Aliyun ECS instance as a from-source address.
 Requires a matching
@@ -131,20 +179,43 @@ Requires a matching
 resource block (for
 .BR region: ).
 .TP
+.B from: aliyun nic
+Aliyun ENI-scoped from-source (same
+.B nic:
+keys as
+.BR "from: ec2 nic" ).
+.TP
 .B instance: \(laID\(ra
 .TP
 .B instance_id: \(laID\(ra
-EC2 or ECS instance ID. When omitted, the cloud handler searches running
-instances in the configured region.
+EC2 or ECS instance ID. When omitted (and no
+.B nic:
+is set), the cloud handler searches running instances in the configured region.
 .PP
 Example:
 .PP
 .RS
 .nf
-from: ec2 instance
+from: ec2
 instance: i-0123456789abcdef0
 .fi
 .RE
+.PP
+GUI address sources use the short labels
+.BR ec2 ,
+.BR "ec2 nic" ,
+.BR aliyun ,
+and
+.BR "aliyun nic"
+(not a generic
+.BR instance
+label).
+.B from: ec2 instance
+is accepted as an alias of
+.BR "from: ec2" ;
+.B from: aliyun instance
+aliases
+.BR "from: aliyun" .
 .SH CLI OPTIONS IN PROFILES
 Lines of the form:
 .PP
@@ -287,6 +358,8 @@ Path to the file.
 IPv4 and IPv6 literals are matched with alphanumeric lookbehind/lookahead
 (not word boundaries), so dotted addresses inside longer tokens are not
 matched. Spare/old IP candidates from
+.B history-addr
+/
 .B addr-history ,
 .B from:
 blocks, and
@@ -407,9 +480,9 @@ and
 # chaddr example profile
 description: Example relay
 version: 1
-addr-history: 198.51.100.4 2026-06-24 12:00:00
-addr-history: 2001:db8::1 2026-06-24 12:00:00
-addr-history: 203.0.113.10 2026-06-25 09:15:00
+history-addr: 198.51.100.4 "2026-06-24 12:00:00"
+history-addr: 2001:db8::1 "2026-06-24 12:00:00"
+history-addr: 203.0.113.10 "2026-06-25 09:15:00"
 
 from: resolve
 resolve: relay.example.com

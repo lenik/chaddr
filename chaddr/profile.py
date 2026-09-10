@@ -9,7 +9,7 @@ import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Callable, Iterator, Sequence
 
 from chaddr.address import AddressSet, is_ipv4, is_ipv6
 from chaddr.profile_lexer import (
@@ -21,6 +21,7 @@ from chaddr.profile_lexer import (
     lex_line,
     logical_lines,
     parse_arg,
+    parse_shell_words,
     tokenize_profile,
 )
 from chaddr.types import get_handler_class
@@ -121,13 +122,33 @@ class ProfileHeader:
 @dataclass(frozen=True)
 class AddrHistoryRecord:
     address: str
-    timestamp: str = ""
+    insert_time: str = ""
+    event_time: str = ""
+
+    @property
+    def timestamp(self) -> str:
+        """Backward-compatible alias for insert_time."""
+        return self.insert_time
 
     def format_line(self) -> str:
-        if self.timestamp:
-            return f"addr-history: {self.address} {self.timestamp}"
-        return f"addr-history: {self.address}"
+        """Emit canonical ``history-addr:`` line with double-quoted timestamps."""
 
+        def quote(value: str) -> str:
+            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+            return f'"{escaped}"'
+
+        parts = [f"history-addr: {self.address}"]
+        if self.insert_time:
+            parts.append(quote(self.insert_time))
+            if self.event_time:
+                parts.append(quote(self.event_time))
+        elif self.event_time:
+            parts.append('""')
+            parts.append(quote(self.event_time))
+        return " ".join(parts)
+
+
+_HISTORY_ATTR_NAMES = frozenset({"addr-history", "history-addr"})
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _TIME_RE = re.compile(r"^\d{2}:\d{2}:\d{2}$")
@@ -137,8 +158,24 @@ def format_addr_history_timestamp(when: datetime | None = None) -> str:
     return (when or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def parse_history_addr_args(args: Sequence[str] | tuple[str, ...] | list[str]) -> list[AddrHistoryRecord]:
+    """Parse one ``history-addr:`` line from shell-split args.
+
+    ``history-addr: <address> "<inserttime>" ["<eventtime>"]``
+    """
+    words = [part for part in args if part]
+    if not words:
+        return []
+    address = words[0]
+    if not (is_ipv4(address) or is_ipv6(address)):
+        return []
+    insert_time = words[1] if len(words) > 1 else ""
+    event_time = words[2] if len(words) > 2 else ""
+    return [AddrHistoryRecord(address, insert_time=insert_time, event_time=event_time)]
+
+
 def parse_addr_history_arg(raw: str) -> list[AddrHistoryRecord]:
-    """Parse one addr-history argument.
+    """Parse legacy ``addr-history`` argument.
 
     Supports:
       - legacy: ``ip1 ip2 ip3``
@@ -153,17 +190,17 @@ def parse_addr_history_arg(raw: str) -> list[AddrHistoryRecord]:
         if not (is_ipv4(token) or is_ipv6(token)):
             index += 1
             continue
-        timestamp = ""
+        insert_time = ""
         if index + 1 < len(tokens) and _DATE_RE.match(tokens[index + 1]):
             if index + 2 < len(tokens) and _TIME_RE.match(tokens[index + 2]):
-                timestamp = f"{tokens[index + 1]} {tokens[index + 2]}"
+                insert_time = f"{tokens[index + 1]} {tokens[index + 2]}"
                 index += 3
             else:
-                timestamp = tokens[index + 1]
+                insert_time = tokens[index + 1]
                 index += 2
         else:
             index += 1
-        records.append(AddrHistoryRecord(token, timestamp))
+        records.append(AddrHistoryRecord(token, insert_time=insert_time))
     return records
 
 
@@ -203,15 +240,20 @@ def _read_addr_history_records(lines: list[str], header_end: int) -> list[AddrHi
     index = 0
     while index < header_end:
         token = lex_line(lines[index], index + 1)
-        if token and token.kind == TokenKind.ATTR and token.name == "addr-history":
+        if token and token.kind == TokenKind.ATTR and token.name in _HISTORY_ATTR_NAMES:
             end = index + 1
             while end < header_end and lines[end - 1].rstrip().endswith("\\"):
                 end += 1
             block = "\n".join(lines[index:end])
             for logical in logical_lines(block):
                 item = lex_line(logical, index + 1)
-                if item and item.kind == TokenKind.ATTR and item.name == "addr-history":
-                    records.extend(parse_addr_history_arg(item.raw_arg or ""))
+                if not item or item.kind != TokenKind.ATTR or item.name not in _HISTORY_ATTR_NAMES:
+                    continue
+                raw = item.raw_arg or ""
+                if item.name == "history-addr":
+                    records.extend(parse_history_addr_args(parse_shell_words(raw)))
+                else:
+                    records.extend(parse_addr_history_arg(raw))
             index = end
             continue
         index += 1
@@ -219,13 +261,13 @@ def _read_addr_history_records(lines: list[str], header_end: int) -> list[AddrHi
 
 
 def _strip_addr_history_lines(lines: list[str], header_end: int) -> tuple[list[str], int]:
-    """Remove addr-history lines from the header; return (new_lines, new_header_end)."""
+    """Remove addr-history / history-addr lines from the header."""
     kept: list[str] = []
     removed = 0
     index = 0
     while index < header_end:
         token = lex_line(lines[index], index + 1)
-        if token and token.kind == TokenKind.ATTR and token.name == "addr-history":
+        if token and token.kind == TokenKind.ATTR and token.name in _HISTORY_ATTR_NAMES:
             end = index + 1
             while end < header_end and lines[end - 1].rstrip().endswith("\\"):
                 end += 1
@@ -238,14 +280,59 @@ def _strip_addr_history_lines(lines: list[str], header_end: int) -> tuple[list[s
     return kept, header_end - removed
 
 
-def append_profile_addr_history(profile_path: Path, ips: list[str], *, when: datetime | None = None) -> bool:
-    """Append unique IPs to profile header addr-history (one stamped line each)."""
+def write_profile_history(profile_path: Path, records: list[AddrHistoryRecord]) -> bool:
+    """Replace header history with canonical ``history-addr:`` lines."""
+    if not profile_path.is_file():
+        return False
+
+    lines = profile_path.read_text(encoding="utf-8").splitlines()
+    header_end = _header_boundary_line(lines)
+    lines, header_end = _strip_addr_history_lines(lines, header_end)
+
+    ordered: list[AddrHistoryRecord] = []
+    seen: set[str] = set()
+    for record in records:
+        address = record.address.strip()
+        if not address or not (is_ipv4(address) or is_ipv6(address)):
+            continue
+        if address in seen:
+            continue
+        seen.add(address)
+        ordered.append(
+            AddrHistoryRecord(
+                address,
+                insert_time=(record.insert_time or "").strip(),
+                event_time=(record.event_time or "").strip(),
+            )
+        )
+
+    insert_at = header_end
+    while insert_at > 0 and not lines[insert_at - 1].strip():
+        insert_at -= 1
+    history_lines = [record.format_line() for record in ordered]
+    lines[insert_at:insert_at] = history_lines
+    profile_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    return True
+
+
+def append_profile_addr_history(
+    profile_path: Path,
+    ips: list[str],
+    *,
+    when: datetime | None = None,
+    event_time: str = "",
+) -> bool:
+    """Append unique IPs to profile history and rewrite as ``history-addr:`` lines.
+
+    Always migrates legacy ``addr-history:`` lines to ``history-addr:`` on write.
+    Returns True when the profile file was rewritten.
+    """
     new_ips: list[str] = []
     for ip in ips:
         value = ip.strip()
         if value and (is_ipv4(value) or is_ipv6(value)) and value not in new_ips:
             new_ips.append(value)
-    if not new_ips or not profile_path.is_file():
+    if not profile_path.is_file():
         return False
 
     lines = profile_path.read_text(encoding="utf-8").splitlines()
@@ -254,16 +341,13 @@ def append_profile_addr_history(profile_path: Path, ips: list[str], *, when: dat
     by_addr = {record.address: record for record in existing}
 
     stamp = format_addr_history_timestamp(when)
-    changed = False
+    added = False
     for ip in new_ips:
         if ip in by_addr:
             continue
-        by_addr[ip] = AddrHistoryRecord(ip, stamp)
-        changed = True
-    if not changed:
-        return False
+        by_addr[ip] = AddrHistoryRecord(ip, insert_time=stamp, event_time=event_time.strip())
+        added = True
 
-    # Preserve prior order, then append new addresses.
     ordered: list[AddrHistoryRecord] = []
     seen: set[str] = set()
     for record in existing:
@@ -277,15 +361,16 @@ def append_profile_addr_history(profile_path: Path, ips: list[str], *, when: dat
         ordered.append(by_addr[ip])
         seen.add(ip)
 
-    lines, header_end = _strip_addr_history_lines(lines, header_end)
-    insert_at = header_end
-    while insert_at > 0 and not lines[insert_at - 1].strip():
-        insert_at -= 1
-    history_lines = [record.format_line() for record in ordered]
-    lines[insert_at:insert_at] = history_lines
-    profile_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
-    return True
+    has_legacy = False
+    for index in range(header_end):
+        token = lex_line(lines[index], index + 1)
+        if token and token.kind == TokenKind.ATTR and token.name == "addr-history":
+            has_legacy = True
+            break
 
+    if not added and not has_legacy and ordered == existing:
+        return False
+    return write_profile_history(profile_path, ordered)
 
 @dataclass
 class ProfileEntry:
@@ -539,8 +624,11 @@ def _parse_profile(
         if current_from is None and current_entry is None:
             if current_header is None:
                 current_header = ProfileHeader(options={})
-            if key == "addr-history":
-                current_header.addr_history_records.extend(parse_addr_history_arg(value))
+            if key in _HISTORY_ATTR_NAMES:
+                if key == "history-addr":
+                    current_header.addr_history_records.extend(parse_history_addr_args(token.args))
+                else:
+                    current_header.addr_history_records.extend(parse_addr_history_arg(value))
             else:
                 current_header.options[key] = value
             continue
@@ -629,13 +717,50 @@ def update_profile_entry_option(
 
 
 INSTANCE_FROM_HANDLERS: dict[str, str] = {
+    "ec2": "aws elastic ip",
     "ec2 instance": "aws elastic ip",
+    "ec2 nic": "aws elastic ip",
+    "aliyun": "aliyun elastic ip",
     "aliyun instance": "aliyun elastic ip",
+    "aliyun nic": "aliyun elastic ip",
+}
+
+# Canonical GUI / address-panel source labels for cloud from: blocks.
+FROM_TYPE_SOURCE_LABELS: dict[str, str] = {
+    "ec2": "ec2",
+    "ec2 instance": "ec2",
+    "ec2 nic": "ec2 nic",
+    "aliyun": "aliyun",
+    "aliyun instance": "aliyun",
+    "aliyun nic": "aliyun nic",
 }
 
 
 def is_instance_from_type(from_type: str) -> bool:
     return canonical_ws_tokens(from_type).lower() in INSTANCE_FROM_HANDLERS
+
+
+def canonical_from_type_label(from_type: str) -> str:
+    """Normalize profile from: type to GUI source label (ec2 / ec2 nic / …)."""
+    label = canonical_ws_tokens(from_type).lower()
+    return FROM_TYPE_SOURCE_LABELS.get(label, label)
+
+
+def cloud_from_block_options(profile: Profile) -> dict[str, str]:
+    """Merge identity options from cloud from: blocks into elastic-IP handler config."""
+    merged: dict[str, str] = {}
+    for from_block in profile_from_blocks(profile):
+        from_type = canonical_ws_tokens(from_block.from_type).lower()
+        if from_type not in INSTANCE_FROM_HANDLERS:
+            continue
+        merged.update(from_block.options)
+        merged["from_type"] = canonical_from_type_label(from_block.from_type)
+    return merged
+
+
+def ec2_from_block_options(profile: Profile) -> dict[str, str]:
+    """Backward-compatible alias for cloud_from_block_options (AWS + Aliyun)."""
+    return cloud_from_block_options(profile)
 
 
 def handler_config_for_instance_from(
@@ -650,6 +775,7 @@ def handler_config_for_instance_from(
         if canonical_ws_tokens(entry.type).lower() == handler_type:
             config.update(entry.config)
     config.update(from_block.options)
+    config["from_type"] = canonical_from_type_label(from_block.from_type)
     return handler_type, config
 
 
@@ -757,7 +883,15 @@ def _instruction_detail(type_name: str, options: dict[str, str], *, kind: str) -
                 or options.get("name")
                 or ""
             )
-        if "instance" in lower:
+        if lower.endswith(" nic"):
+            return (
+                options.get("nic")
+                or options.get("eni")
+                or options.get("network_interface")
+                or options.get("network_interface_id")
+                or ""
+            )
+        if lower in ("ec2", "aliyun") or lower.endswith(" instance") or "instance" in lower:
             return options.get("instance") or options.get("instance_id") or ""
         return next(iter(options.values()), "") if options else ""
 
@@ -788,9 +922,7 @@ def _instruction_detail(type_name: str, options: dict[str, str], *, kind: str) -
 def _format_instruction_summary(kind: str, type_name: str, options: dict[str, str]) -> str:
     detail = _instruction_detail(type_name, options, kind=kind)
     if kind == "from":
-        label = canonical_ws_tokens(type_name).lower()
-        if label.endswith(" instance"):
-            label = label[: -len(" instance")].strip() or label
+        label = canonical_from_type_label(type_name)
         return f"from {label} {detail}".rstrip()
     label = _TYPE_SUMMARY_LABELS.get(canonical_ws_tokens(type_name).lower(), type_name)
     summary = f"{label} {detail}".rstrip()
@@ -924,26 +1056,57 @@ def iter_profile_address_fetch(
         block for block in profile_from_blocks(profile) if is_instance_from_type(block.from_type)
     ]
     for index, from_block in enumerate(instance_blocks):
-        instance_id = (
-            from_block.options.get("instance")
+        source_label = canonical_from_type_label(from_block.from_type)
+        scope_id = (
+            from_block.options.get("nic")
+            or from_block.options.get("eni")
+            or from_block.options.get("network_interface")
+            or from_block.options.get("network_interface_id")
+            or from_block.options.get("instance")
             or from_block.options.get("instance_id")
-            or from_block.from_type
+            or source_label
         )
 
-        def _instance_entries(block=from_block) -> list[AddressEntry]:
-            resolved = instance_from_block_addresses(profile, block, options, proxy, log)
-            instance_id = block.options.get("instance") or block.options.get("instance_id") or ""
+        def _instance_entries(block=from_block, source=source_label) -> list[AddressEntry]:
+            from chaddr.types import create_handler
+
+            spec = handler_config_for_instance_from(profile, block)
+            if spec is None:
+                return []
+            handler_type, config = spec
+            handler = create_handler(
+                handler_type,
+                config,
+                merge_cli_options(profile, options or {}),
+                proxy,
+                log,
+            )
+            diag = handler.diagnose()
+            detail = (
+                block.options.get("nic")
+                or block.options.get("eni")
+                or block.options.get("network_interface")
+                or block.options.get("network_interface_id")
+                or block.options.get("instance")
+                or block.options.get("instance_id")
+                or ""
+            )
             entries: list[AddressEntry] = []
-            if resolved.ipv4:
-                entries.append(AddressEntry("IPv4", resolved.ipv4, "instance", detail=instance_id))
-            if resolved.ipv6:
-                entries.append(AddressEntry("IPv6", resolved.ipv6, "instance", detail=instance_id))
+            seen: set[str] = set()
+            for ip in diag.addresses:
+                if ip in seen:
+                    continue
+                seen.add(ip)
+                if is_ipv4(ip):
+                    entries.append(AddressEntry("IPv4", ip, source, detail=detail))
+                elif is_ipv6(ip):
+                    entries.append(AddressEntry("IPv6", ip, source, detail=detail))
             return entries
 
         steps.append(
             (
-                f"Fetching {instance_id}...",
-                frozenset({"instance"}) if index == 0 else None,
+                f"Fetching {scope_id}...",
+                frozenset({source_label}),
                 _instance_entries,
             )
         )

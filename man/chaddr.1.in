@@ -91,7 +91,8 @@ Each profile file contains blocks such as:
 .RS
 .nf
 description: Example relay
-addr-history: 198.51.100.4 2001:db8::1
+history-addr: 198.51.100.4 "2026-06-24 12:00:00"
+history-addr: 2001:db8::1 "2026-06-24 12:00:00"
 
 from: resolve
 resolve: example.example.com
@@ -113,12 +114,25 @@ path: /var/cache/bind/db.example.com
 .PP
 .B from: resolve
 with a hostname to discover current addresses. Profiles may also use
-.B from: ec2 instance
-or
-.B from: aliyun instance
+.B from: ec2 nic
+/
+.B from: aliyun nic
 (with
+.B nic:
+ENI id), or
+.B from: ec2
+/
+.B from: aliyun
+(aliases
+.B ec2 instance
+/
+.BR "aliyun instance" ;
+with
 .B instance:
-ID) to read the public IPv4 from the cloud API. See
+ID) to read public IPv4 from the cloud API. Prefer NIC scope when an instance
+has multiple ENIs; instance-scope renew only updates IPs present in
+.BR history-addr .
+See
 .BR chaddr-profile (5)
 for the full profile syntax, header fields, resource types, and examples. A
 trailing
