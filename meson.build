@@ -1,6 +1,22 @@
 project(
     'chaddr',
-    meson_version: '>=1.2.0',
+    meson_version: run_command(
+        'sh',
+        '-c', '''
+        v=$(
+            command -v zfr >/dev/null 2>&1 && zfr version 2>/dev/null || true
+        )
+        if [ -z "$v" ] && [ -f VERSION ]; then
+            v=$(head -n1 VERSION | tr -d '\r')
+            v=${v#v}
+        fi
+        if [ -z "$v" ]; then
+            v="0.0.0" # FIXED TO 0.0.0, DO NOT MODIFY
+        fi
+        printf '%s' "$v"
+        ''',
+        check: false,
+    ).stdout().strip(),
     version: run_command(
         'sh',
         '-c', '''
@@ -20,6 +36,10 @@ project(
     license: 'AGPL-3.0-or-later',
     default_options: ['buildtype=release'],
 )
+project_author = 'Lenik (谢继雷)'
+project_email = 'lenik@bodz.net'
+project_year = 2026
+
 
 fs = import('fs')
 
@@ -145,3 +165,42 @@ run_target(
         ''',
     ],
 )
+
+asciidoctor = find_program('asciidoctor', required: true)
+
+mandir = prefix / get_option('mandir')
+pkgdocdir = datadir / 'doc' / meson.project_name()
+
+install_data(
+    [
+        'LICENSE',
+        'README.md',
+        'README-zh.md',
+    ],
+    install_dir: pkgdocdir,
+)
+
+man_puffs = [
+    'chaddr',
+    'chaddr-profile',
+]
+foreach puff : man_puffs
+  custom_target(
+    puff + '-man',
+    input: 'docs' / (puff + '.adoc'),
+    output: puff + '.1',
+    command: [
+      asciidoctor,
+      '-b', 'manpage',
+      '-a', 'project-version=' + meson.project_version(),
+      '-a', 'project-year=@0@'.format(project_year),
+      '-a', 'project-author=' + project_author,
+      '-a', 'project-email=' + project_email,
+      '-o', '@OUTPUT@',
+      '@INPUT@',
+    ],
+    build_by_default: true,
+    install: true,
+    install_dir: mandir / 'man1',
+  )
+endforeach

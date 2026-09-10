@@ -6,7 +6,8 @@ Build-Depends: debhelper-compat (= 13),
                meson,
                ninja-build,
                python3-all,
-               bash-completion
+               bash-completion,
+ asciidoctor
 Standards-Version: 4.6.2
 Rules-Requires-Root: no
 

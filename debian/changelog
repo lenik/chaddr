@@ -1,3 +1,22 @@
+chaddr (1.0.7) testing; urgency=medium
+
+  * Align packaging/Meson/man pages to current zephyr style (zfr ize).
+  * add README-zh.md: from python template (banner stripped)
+  * add debian/source/format: from python template
+  * add packaging/README.md: from python template
+  * add packaging/lib/host.sh: from python template
+  * add packaging/lib/common.mk: from python template
+  * add packaging/rpm/Makefile: from python template
+  * add packaging/rpm/.gitignore: from python template
+  * add packaging/win32/Makefile: from python template
+  * add packaging/win32/README.md: from python template
+  * add packaging/win32/.gitignore: from python template
+  * add packaging/win32/build-host.example: from python template
+  * add packaging/win32/mingw/Makefile: from python template
+  * …and 27 more path updates.
+
+ -- Lenik (谢继雷) <lenik@bodz.net>  Thu, 10 Sep 2026 09:12:18 +0800
+
 chaddr (1.0.6) testing; urgency=medium
 
   * AWS: from: ec2 nic (nic:/eni:) scopes diagnose/renew to one ENI; from: ec2
