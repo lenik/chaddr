@@ -1,3 +1,23 @@
+chaddr (1.0.6) testing; urgency=medium
+
+  * AWS: from: ec2 nic (nic:/eni:) scopes diagnose/renew to one ENI; from: ec2
+    (alias: ec2 instance) covers the instance but renew only reallocates public
+    IPs present in history/spare; reassociate keeps the same private-IP slot
+  * Aliyun from-type aliases: aliyun / aliyun nic (plus * instance forms);
+    GUI address sources use ec2, ec2 nic, aliyun, aliyun nic labels
+  * Diagnose: selected Addresses list entry is the expectation/target; CLI
+    --diagnose --apply IP does the same
+  * Namecheap registered nameserver: apply/diagnose only when current glue
+    matches history/spare; otherwise skip with no-apply (ignore unmanaged IPs)
+  * Profiles: history-addr: <ip> "<inserttime>" ["<eventtime>"] (repeatable);
+    legacy addr-history still loads and is rewritten to history-addr on save
+  * GUI: History tab to edit history-addr; Diagnose no longer mutates the
+    Addresses list or clears selection
+  * Documentation: README, chaddr(1), chaddr-profile(5), and profile/example
+    cover NIC from-blocks, history-addr, and History tab
+
+ -- Lenik (谢继雷) <lenik@bodz.net>  Thu, 10 Sep 2026 09:10:40 +0800
+
 chaddr (1.0.5) testing; urgency=medium
 
   * Resource type: router — diagnose and apply OpenWrt Shadowsocks remote
