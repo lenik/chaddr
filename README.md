@@ -43,8 +43,10 @@ cp chaddr.conf.template ~/.config/chaddr/chaddr.conf
 mkdir -p ~/.config/chaddr/profile
 cp profile/example ~/.config/chaddr/profile/   # example profile
 
-python3 chaddr.py --diagnose -v example   # CLI
-python3 chaddr.py example                 # GUI
+python3 -m chaddr --diagnose -v example   # needs PYTHONPATH=build/pythonpath
+# after meson setup + ninja:
+./build/chaddr -h
+LANG=zh_CN.UTF-8 ./build/chaddr -h
 ```
 
 For a git checkout, profiles in `./profile/` are copied into `~/.config/chaddr/profile/` on first run when that directory is empty. Override the location with `CHADDR_PROFILE_DIR`.
@@ -211,7 +213,9 @@ Set `CHADDR_PROFILE_DIR` to override the profile directory (default:
 
 ## Building and installing
 
-Meson configures install paths and writes `chaddr/buildconfig.py` at build time
+Meson configures install paths and writes `src/buildconfig.py` at build time
+(installed as `chaddr/buildconfig.py`). Sources live in flat `src/`; the
+uninstalled launcher uses `build/pythonpath/chaddr` → `src`.
 (`PROFILE_DIR`, `DOC_DIR`, `SYSCONFDIR`, `VERSION`, etc.).
 
 ```bash
@@ -248,8 +252,8 @@ example profiles under `/usr/share/chaddr/profile/`.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-CHADDR_PROFILE_DIR=./profile python3 chaddr.py   # optional: use checkout profiles
-python3 chaddr.py
+CHADDR_PROFILE_DIR=./profile ./build/chaddr   # optional: use checkout profiles
+./build/chaddr
 ```
 
 Or install from a Meson build tree:

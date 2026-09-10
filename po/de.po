@@ -5,8 +5,8 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: chaddr 1.0.7\n"
-"Report-Msgid-Bugs-To: lenik@bodz.net\n"
-"POT-Creation-Date: 2026-09-10 09:16+0800\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-10 09:32+0800\n"
 "PO-Revision-Date: 2026-09-10 09:17+0800\n"
 "Last-Translator: Lenik <lenik@bodz.net>\n"
 "Language-Team: de\n"
@@ -15,50 +15,66 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+#: src/cli.py:43
 msgid "Change or reallocate IP addresses defined in profile files."
 msgstr "In Profildateien definierte IP-Adressen ändern oder neu zuweisen."
 
+#: src/cli.py:48
 msgid "Profile name(s) under ~/.config/chaddr/profile/ (override with CHADDR_PROFILE_DIR)"
 msgstr "Profilname(n) unter ~/.config/chaddr/profile/ (überschreibbar mit CHADDR_PROFILE_DIR)"
 
+#: src/cli.py:53
 msgid "FILE"
 msgstr "DATEI"
 
+#: src/cli.py:54
 msgid "JSON config file with API keys/secrets (default: ./chaddr.conf or ~/.config/chaddr/chaddr.conf)"
 msgstr "JSON-Konfigurationsdatei mit API-Schlüsseln/Geheimnissen (Standard: ./chaddr.conf oder ~/.config/chaddr/chaddr.conf)"
 
+#: src/cli.py:58
 msgid "Proxy URL, e.g. socks5://127.0.0.1:1080 or http://127.0.0.1:8080"
 msgstr "Proxy-URL, z. B. socks5://127.0.0.1:1080 oder http://127.0.0.1:8080"
 
+#: src/cli.py:63
 msgid "Run diagnosis only (CLI mode); with --apply IP, that IP is the diagnose target"
 msgstr "Nur Diagnose ausführen (CLI-Modus); mit --apply IP ist diese IP das Diagnoseziel"
 
+#: src/cli.py:69
 msgid "List all candidate addresses for profile(s) (CLI mode)"
 msgstr "Alle Kandidatenadressen für Profil(e) auflisten (CLI-Modus)"
 
+#: src/cli.py:74
 msgid "Reallocate elastic IP and propagate (CLI mode)"
 msgstr "Elastic IP neu zuweisen und verbreiten (CLI-Modus)"
 
+#: src/cli.py:78 src/cli.py:83 src/cli.py:88
 msgid "IP"
 msgstr "IP"
 
+#: src/cli.py:79
 msgid "Manually apply IPv4/IPv6 to profile (CLI mode)"
 msgstr "IPv4/IPv6 manuell auf das Profil anwenden (CLI-Modus)"
 
+#: src/cli.py:84
 msgid "New IPv4 for manual apply"
 msgstr "Neue IPv4 für manuelle Anwendung"
 
+#: src/cli.py:89
 msgid "New IPv6 for manual apply"
 msgstr "Neue IPv6 für manuelle Anwendung"
 
+#: src/cli.py:93
 msgid "Old IP for manual apply when auto-detection fails"
 msgstr "Alte IP für manuelle Anwendung, wenn Auto-Erkennung fehlschlägt"
 
+#: src/cli.py:100
 msgid "Increase logging verbosity"
 msgstr "Protokollausführlichkeit erhöhen"
 
+#: src/cli.py:105
 msgid "Force CLI mode even without action flags"
 msgstr "CLI-Modus auch ohne Aktionsflags erzwingen"
 
+#: src/cli.py:227
 msgid "No CLI action specified; use --diagnose, --renew, or --apply"
 msgstr "Keine CLI-Aktion angegeben; verwenden Sie --diagnose, --renew oder --apply"

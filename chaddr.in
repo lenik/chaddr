@@ -1,0 +1,24 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Lenik <lenik@bodz.net>
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Shell launcher for chaddr. Works from the Meson builddir and after install.
+set -e
+
+bindir=$(dirname "$(readlink -f "$0")")
+
+# Uninstalled (ninja -C build): build/pythonpath/chaddr → src/
+if [ -d "$bindir/pythonpath/chaddr" ]; then
+    export PYTHONPATH="$bindir/pythonpath${PYTHONPATH:+:$PYTHONPATH}"
+    if [ -d "$bindir/po" ]; then
+        export CHADDR_LOCALEDIR="${CHADDR_LOCALEDIR:-$bindir/po}"
+    fi
+    export CHADDR_BUILD_ROOT="${CHADDR_BUILD_ROOT:-$bindir}"
+fi
+
+# Avoid noisy GTK accessibility warnings under wxGTK.
+if [ "$(uname -s)" = Linux ] && [ -z "${GTK_A11Y+x}" ]; then
+    export GTK_A11Y=none
+fi
+
+exec @PYTHON@ -m chaddr "$@"

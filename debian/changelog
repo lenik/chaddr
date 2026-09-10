@@ -1,3 +1,15 @@
+chaddr (1.1.0) testing; urgency=medium
+
+  * Move Python package sources to flat src/ (installed as chaddr); build/chaddr
+    runnable from the project tree with gettext from build/po
+  * bindir/chaddr is a shell launcher (python3 -m chaddr); remove root
+    chaddr.py that shadowed the package
+  * Split src/profile.py into src/profile/ package modules
+  * Split oversized sources for ZL001: profile/, gui/app/,
+    orchestrator_diagnose.py
+
+ -- Lenik (谢继雷) <lenik@bodz.net>  Thu, 10 Sep 2026 09:29:15 +0800
+
 chaddr (1.0.9) testing; urgency=medium
 
   * RPM %files: include bindir, Python package, and bash-completion

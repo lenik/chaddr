@@ -5,8 +5,8 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: chaddr 1.0.7\n"
-"Report-Msgid-Bugs-To: lenik@bodz.net\n"
-"POT-Creation-Date: 2026-09-10 09:16+0800\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-10 09:32+0800\n"
 "PO-Revision-Date: 2026-09-10 09:17+0800\n"
 "Last-Translator: Lenik <lenik@bodz.net>\n"
 "Language-Team: ko\n"
@@ -15,50 +15,66 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+#: src/cli.py:43
 msgid "Change or reallocate IP addresses defined in profile files."
 msgstr "프로파일에 정의된 IP 주소를 변경하거나 재할당합니다."
 
+#: src/cli.py:48
 msgid "Profile name(s) under ~/.config/chaddr/profile/ (override with CHADDR_PROFILE_DIR)"
 msgstr "~/.config/chaddr/profile/ 아래의 프로파일 이름(CHADDR_PROFILE_DIR로 재정의 가능)"
 
+#: src/cli.py:53
 msgid "FILE"
 msgstr "파일"
 
+#: src/cli.py:54
 msgid "JSON config file with API keys/secrets (default: ./chaddr.conf or ~/.config/chaddr/chaddr.conf)"
 msgstr "API 키/비밀이 있는 JSON 설정 파일(기본: ./chaddr.conf 또는 ~/.config/chaddr/chaddr.conf)"
 
+#: src/cli.py:58
 msgid "Proxy URL, e.g. socks5://127.0.0.1:1080 or http://127.0.0.1:8080"
 msgstr "프록시 URL(예: socks5://127.0.0.1:1080 또는 http://127.0.0.1:8080)"
 
+#: src/cli.py:63
 msgid "Run diagnosis only (CLI mode); with --apply IP, that IP is the diagnose target"
 msgstr "진단만 실행(CLI 모드); --apply IP와 함께면 해당 IP가 진단 대상입니다"
 
+#: src/cli.py:69
 msgid "List all candidate addresses for profile(s) (CLI mode)"
 msgstr "프로파일의 모든 후보 주소 나열(CLI 모드)"
 
+#: src/cli.py:74
 msgid "Reallocate elastic IP and propagate (CLI mode)"
 msgstr "탄력적 IP를 재할당하고 전파(CLI 모드)"
 
+#: src/cli.py:78 src/cli.py:83 src/cli.py:88
 msgid "IP"
 msgstr "IP"
 
+#: src/cli.py:79
 msgid "Manually apply IPv4/IPv6 to profile (CLI mode)"
 msgstr "프로파일에 IPv4/IPv6를 수동 적용(CLI 모드)"
 
+#: src/cli.py:84
 msgid "New IPv4 for manual apply"
 msgstr "수동 적용할 새 IPv4"
 
+#: src/cli.py:89
 msgid "New IPv6 for manual apply"
 msgstr "수동 적용할 새 IPv6"
 
+#: src/cli.py:93
 msgid "Old IP for manual apply when auto-detection fails"
 msgstr "자동 감지 실패 시 수동 적용에 쓸 이전 IP"
 
+#: src/cli.py:100
 msgid "Increase logging verbosity"
 msgstr "로그 상세도 높이기"
 
+#: src/cli.py:105
 msgid "Force CLI mode even without action flags"
 msgstr "동작 플래그가 없어도 CLI 모드 강제"
 
+#: src/cli.py:227
 msgid "No CLI action specified; use --diagnose, --renew, or --apply"
 msgstr "CLI 동작이 지정되지 않았습니다. --diagnose, --renew 또는 --apply를 사용하세요"

@@ -72,8 +72,21 @@ chaddr_conf.set('PROFILE_DIR', installed_profile_dir)
 chaddr_conf.set('DOC_DIR', installed_doc_dir)
 chaddr_conf.set('PYTHON', '/usr/bin/python3')
 chaddr_conf.set('PY_INSTALL_DIR', py_install_dir)
+chaddr_conf.set('SOURCE_ROOT', meson.project_source_root())
+chaddr_conf.set('BUILD_ROOT', meson.project_build_root())
 
-subdir('chaddr')
+# Uninstalled import path: build/pythonpath/chaddr → src/ (flat package body).
+pythonpath_dir = meson.project_build_root() / 'pythonpath'
+run_command('mkdir', '-p', pythonpath_dir, check: true)
+run_command(
+    'ln',
+    '-sfn',
+    meson.project_source_root() / 'src',
+    pythonpath_dir / 'chaddr',
+    check: true,
+)
+
+subdir('src')
 
 if fs.is_dir('po')
     subdir('po')
@@ -93,8 +106,9 @@ if fs.is_dir('tests')
             'test_*.py',
         ],
         env: [
-            'PYTHONPATH=' + meson.project_source_root(),
+            'PYTHONPATH=' + pythonpath_dir,
             'CHADDR_LOCALEDIR=' + (meson.project_build_root() / 'po'),
+            'CHADDR_BUILD_ROOT=' + meson.project_build_root(),
         ],
     )
 endif
@@ -122,17 +136,27 @@ run_target(
     ],
 )
 
-chaddr_launcher = configure_file(
-    input: 'chaddr.py.in',
-    output: 'chaddr-launcher.py',
+chaddr_launcher_sh = configure_file(
+    input: 'chaddr.in',
+    output: 'chaddr.sh',
     configuration: chaddr_conf,
 )
 
-install_data(
-    chaddr_launcher,
+chaddr_exe = custom_target(
+    'chaddr',
+    input: chaddr_launcher_sh,
+    output: 'chaddr',
+    command: [
+        'sh',
+        '-c',
+        'cp "$1" "$2" && chmod 755 "$2"',
+        '_',
+        '@INPUT@',
+        '@OUTPUT@',
+    ],
+    build_by_default: true,
+    install: true,
     install_dir: bindir,
-    install_mode: 'rwxr-xr-x',
-    rename: 'chaddr',
 )
 
 install_data(

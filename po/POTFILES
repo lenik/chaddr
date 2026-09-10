@@ -1,2 +1,2 @@
-chaddr/cli.py
-chaddr/i18n.py
+src/cli.py
+src/i18n.py
