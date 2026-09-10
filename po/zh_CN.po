@@ -1,0 +1,64 @@
+# Chinese (Simplified) translations for chaddr.
+# Copyright (C) 2026 Lenik <lenik@bodz.net>
+# This file is distributed under the same license as the chaddr package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: chaddr 1.0.7\n"
+"Report-Msgid-Bugs-To: lenik@bodz.net\n"
+"POT-Creation-Date: 2026-09-10 09:16+0800\n"
+"PO-Revision-Date: 2026-09-10 09:17+0800\n"
+"Last-Translator: Lenik <lenik@bodz.net>\n"
+"Language-Team: zh_CN\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Change or reallocate IP addresses defined in profile files."
+msgstr "更改或重新分配配置文件中定义的 IP 地址。"
+
+msgid "Profile name(s) under ~/.config/chaddr/profile/ (override with CHADDR_PROFILE_DIR)"
+msgstr "~/.config/chaddr/profile/ 下的配置文件名（可用 CHADDR_PROFILE_DIR 覆盖）"
+
+msgid "FILE"
+msgstr "文件"
+
+msgid "JSON config file with API keys/secrets (default: ./chaddr.conf or ~/.config/chaddr/chaddr.conf)"
+msgstr "含 API 密钥的 JSON 配置文件（默认：./chaddr.conf 或 ~/.config/chaddr/chaddr.conf）"
+
+msgid "Proxy URL, e.g. socks5://127.0.0.1:1080 or http://127.0.0.1:8080"
+msgstr "代理 URL，例如 socks5://127.0.0.1:1080 或 http://127.0.0.1:8080"
+
+msgid "Run diagnosis only (CLI mode); with --apply IP, that IP is the diagnose target"
+msgstr "仅运行诊断（CLI 模式）；配合 --apply IP 时将该 IP 作为诊断目标"
+
+msgid "List all candidate addresses for profile(s) (CLI mode)"
+msgstr "列出配置文件的全部候选地址（CLI 模式）"
+
+msgid "Reallocate elastic IP and propagate (CLI mode)"
+msgstr "重新分配弹性 IP 并传播（CLI 模式）"
+
+msgid "IP"
+msgstr "IP"
+
+msgid "Manually apply IPv4/IPv6 to profile (CLI mode)"
+msgstr "手动将 IPv4/IPv6 应用到配置文件（CLI 模式）"
+
+msgid "New IPv4 for manual apply"
+msgstr "手动应用的新 IPv4"
+
+msgid "New IPv6 for manual apply"
+msgstr "手动应用的新 IPv6"
+
+msgid "Old IP for manual apply when auto-detection fails"
+msgstr "自动检测失败时手动应用所用的旧 IP"
+
+msgid "Increase logging verbosity"
+msgstr "提高日志详细程度"
+
+msgid "Force CLI mode even without action flags"
+msgstr "即使没有操作标志也强制使用 CLI 模式"
+
+msgid "No CLI action specified; use --diagnose, --renew, or --apply"
+msgstr "未指定 CLI 操作；请使用 --diagnose、--renew 或 --apply"

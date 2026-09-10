@@ -1,0 +1,88 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: chaddr 1.0.7\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-10 09:16+0800\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: chaddr/cli.py:43
+msgid "Change or reallocate IP addresses defined in profile files."
+msgstr ""
+
+#: chaddr/cli.py:48
+msgid ""
+"Profile name(s) under ~/.config/chaddr/profile/ (override with "
+"CHADDR_PROFILE_DIR)"
+msgstr ""
+
+#: chaddr/cli.py:53
+msgid "FILE"
+msgstr ""
+
+#: chaddr/cli.py:54
+msgid ""
+"JSON config file with API keys/secrets (default: ./chaddr.conf or ~/.config/"
+"chaddr/chaddr.conf)"
+msgstr ""
+
+#: chaddr/cli.py:58
+msgid "Proxy URL, e.g. socks5://127.0.0.1:1080 or http://127.0.0.1:8080"
+msgstr ""
+
+#: chaddr/cli.py:63
+msgid ""
+"Run diagnosis only (CLI mode); with --apply IP, that IP is the diagnose "
+"target"
+msgstr ""
+
+#: chaddr/cli.py:69
+msgid "List all candidate addresses for profile(s) (CLI mode)"
+msgstr ""
+
+#: chaddr/cli.py:74
+msgid "Reallocate elastic IP and propagate (CLI mode)"
+msgstr ""
+
+#: chaddr/cli.py:78 chaddr/cli.py:83 chaddr/cli.py:88
+msgid "IP"
+msgstr ""
+
+#: chaddr/cli.py:79
+msgid "Manually apply IPv4/IPv6 to profile (CLI mode)"
+msgstr ""
+
+#: chaddr/cli.py:84
+msgid "New IPv4 for manual apply"
+msgstr ""
+
+#: chaddr/cli.py:89
+msgid "New IPv6 for manual apply"
+msgstr ""
+
+#: chaddr/cli.py:93
+msgid "Old IP for manual apply when auto-detection fails"
+msgstr ""
+
+#: chaddr/cli.py:100
+msgid "Increase logging verbosity"
+msgstr ""
+
+#: chaddr/cli.py:105
+msgid "Force CLI mode even without action flags"
+msgstr ""
+
+#: chaddr/cli.py:227
+msgid "No CLI action specified; use --diagnose, --renew, or --apply"
+msgstr ""

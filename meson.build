@@ -1,6 +1,6 @@
 project(
     'chaddr',
-    meson_version: run_command(
+    version: run_command(
         'sh',
         '-c', '''
         v=$(
@@ -14,22 +14,6 @@ project(
             v="0.0.0" # FIXED TO 0.0.0, DO NOT MODIFY
         fi
         printf '%s' "$v"
-        ''',
-        check: false,
-    ).stdout().strip(),
-    version: run_command(
-        'sh',
-        '-c', '''
-        v=$(git describe --tags --always --dirty 2>/dev/null || true)
-        v=${v#v}
-        if [ -n "$v" ]; then
-            if [ "${v%.*}" = "$v" ]; then
-                v="0.0.0-$v"
-            fi
-            printf "%s" "$v"
-        else
-            echo "0.0.0"
-        fi
         ''',
         check: false,
     ).stdout().strip(),
@@ -90,6 +74,53 @@ chaddr_conf.set('PYTHON', '/usr/bin/python3')
 chaddr_conf.set('PY_INSTALL_DIR', py_install_dir)
 
 subdir('chaddr')
+
+if fs.is_dir('po')
+    subdir('po')
+endif
+
+if fs.is_dir('tests')
+    test(
+        'python-unit',
+        py,
+        args: [
+            '-m',
+            'unittest',
+            'discover',
+            '-s',
+            (meson.project_source_root() / 'tests'),
+            '-p',
+            'test_*.py',
+        ],
+        env: [
+            'PYTHONPATH=' + meson.project_source_root(),
+            'CHADDR_LOCALEDIR=' + (meson.project_build_root() / 'po'),
+        ],
+    )
+endif
+
+run_target(
+    'posync',
+    command: [
+        'bash',
+        '-euc', '''
+            cd "@SOURCE_ROOT@/po"
+            xgettext --from-code=UTF-8 --keyword=_ --language=Python --directory=.. --output=chaddr.pot --files-from=POTFILES
+            while IFS= read -r lang; do
+                [ -n "$lang" ] || continue
+                case "$lang" in
+                    '#'* ) continue ;;
+                esac
+                po_file="$lang.po"
+                if [ ! -f "$po_file" ]; then
+                    msginit --no-translator --input=chaddr.pot --locale="$lang" --output-file="$po_file"
+                fi
+                msgmerge --update --backup=none "$po_file" chaddr.pot
+                msgattrib --no-obsolete --output-file="$po_file" "$po_file"
+            done < LINGUAS
+        ''',
+    ],
+)
 
 chaddr_launcher = configure_file(
     input: 'chaddr.py.in',

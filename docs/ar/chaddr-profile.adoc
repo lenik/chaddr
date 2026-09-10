@@ -1,0 +1,320 @@
+= chaddr-profile(5)
+{project-author} <{project-email}>
+v{project-version}, {project-year}
+:doctype: manpage
+:manmanual: User Commands
+:mansource: chaddr-profile
+:man-linkstyle: blue R <>
+:nofooter:
+
+== NAME
+
+chaddr-profile - chaddr address profile file format
+
+== DESCRIPTION
+
+A _chaddr_ profile is a plain-text file that declares how to discover the current IP addresses of a host and which resources must be checked or updated when those addresses change. Profiles are read by *chaddr*(1).
+
+Each file is a sequence of **key:**value lines. Keys are case-insensitive. Empty lines and lines beginning with *#* are ignored, except for special *# option* directives (see below). A trailing backslash *\* at the end of a physical line continues the line on the next line (shell-style continuation).
+
+== FILE LOCATION
+
+Profile files have no required filename extension. By default they live in _~/.config/chaddr/profile/_. Override the directory with the *CHADDR_PROFILE_DIR* environment variable. Example profiles ship in _/usr/share/chaddr/profile/_ when installed from a package, or in _profile/_ in a source checkout. On first run, an empty user profile directory is seeded from those examples.
+
+== STRUCTURE
+
+Profiles contain, in order:
+
+* An optional *header* (before the first *from:* or *type:* line).
+* An optional *from* block that resolves current addresses.
+* One or more *type* blocks, each describing a resource *chaddr* can diagnose, renew, or manually update.
+
+A profile may contain multiple *type:* blocks. Each block starts with *type: ⟨NAME⟩* and continues until the next *type:* or *from:* line or end of file.
+
+== HEADER
+
+Header fields appear before the first *from:* or *type:* line.
+
+*description: ⟨TEXT⟩*::
+  Short human-readable label shown in the GUI profile list.
+*version: ⟨TEXT⟩*::
+  Optional version string shown in the GUI profile list.
+*history-addr: ⟨ADDR⟩ "⟨INSERTTIME⟩" ["⟨EVENTTIME⟩"]*::
+  Canonical historical address entry (may appear multiple times). _INSERTTIME_ is when the record was added (quoted *YYYY-MM-DD HH:MM:SS*). _EVENTTIME_ is optional business time for the address. These addresses are treated like spare *--old-ip* values when matching old IPs in *hosts*(5) entries and BIND zone files during diagnose and apply.
+*addr-history: ⟨ADDR⟩ [⟨TIMESTAMP⟩]*::
+  Legacy form (still read). One address per line with optional unquoted timestamp, or a single line with multiple IPs. On save (renew or History tab), legacy lines are rewritten as *history-addr* entries.
+
+Example:
+
+____
+....
+history-addr: 198.51.100.4 "2026-06-24 12:00:00"
+history-addr: 2001:db8::1 "2026-06-24 12:00:00" "2026-06-25 09:15:00"
+....
+____
+
+== FROM BLOCK
+
+The optional *from* block tells *chaddr* how to discover the current primary addresses for the profile.
+
+*from: resolve*::
+  Use DNS to resolve a hostname.
+*resolve: ⟨HOSTNAME⟩*::
+  Hostname to resolve. Aliases: *host:*, *name:*.
+
+Example:
+
+____
+....
+from: resolve
+resolve: relay.example.com
+....
+____
+
+*from: ec2 nic*::
+  Use public IPv4 address(es) on a specific Elastic Network Interface (ENI). Prefer this when the instance has multiple NICs. Renew keeps the association on the same private address slot (primary or secondary) of that NIC. Requires a matching *aws elastic ip* resource block in the same profile (for *region:*).
+*nic: ⟨ENI-ID⟩*::
+  *eni: ⟨ENI-ID⟩*;;
+    *network_interface: ⟨ENI-ID⟩*::
+      ENI id for *from: ec2 nic* / *from: aliyun nic*.
+
+Example:
+
+____
+....
+from: ec2 nic
+nic: eni-0123456789abcdef0
+....
+____
+
+*from: ec2* +
+*from: ec2 instance*::
+  Discover public IPv4 addresses on an EC2 instance (every NIC). Renew only reallocates public IPs that also appear in profile *history-addr* / *addr-history* (or GUI spare/old-ip). Unmatched public IPs on other ENIs are left alone. Prefer *from: ec2 nic* when targeting a single NIC. Requires a matching *aws elastic ip* resource block (for *region:*).
+*from: aliyun* +
+*from: aliyun instance*::
+  Use the public IPv4 of an Aliyun ECS instance as a from-source address. Requires a matching *aliyun elastic ip* resource block (for *region:*).
+*from: aliyun nic*::
+  Aliyun ENI-scoped from-source (same *nic:* keys as *from: ec2 nic*).
+*instance: ⟨ID⟩*::
+  *instance_id: ⟨ID⟩*;;
+    EC2 or ECS instance ID. When omitted (and no *nic:* is set), the cloud handler searches running instances in the configured region.
+
+Example:
+
+____
+....
+from: ec2
+instance: i-0123456789abcdef0
+....
+____
+
+GUI address sources use the short labels *ec2*, *ec2 nic*, *aliyun*, and *aliyun nic* (not a generic *instance* label). *from: ec2 instance* is accepted as an alias of *from: ec2*; *from: aliyun instance* aliases *from: aliyun*.
+
+== CLI OPTIONS IN PROFILES
+
+Lines of the form:
+
+____
+*# option --flag*
+____
+
+attach extra CLI flags to the following *type:* block. At the very beginning of a file (before any header, *from:* or *type:* line), such lines register global CLI options for the profile.
+
+Credentials and secrets are normally read from _chaddr.conf_; profile *# option* lines are mainly for per-block flags required by handlers.
+
+== RESOURCE TYPES
+
+Each resource block begins with *type: ⟨NAME⟩* where _NAME_ is one of the supported types below (case-insensitive).
+
+Any type block may include *optional: true* (also *yes*, *on*, or *1*). In the GUI Instructions tab such blocks start deselected; the CLI still runs them unless an instruction filter is applied.
+
+=== aws elastic ip
+
+Diagnose and renew (reallocate) an AWS Elastic IP associated with an EC2 instance.
+
+*region: ⟨REGION⟩*::
+  AWS region ID or short alias. Aliases include _sg1_, _kr1_, _hk1_, _jp1_, _jp2_, _au1_, _us1_, and _us2_.
+*instance: ⟨ID⟩*::
+  *instance_id: ⟨ID⟩*;;
+    Optional EC2 instance ID. When omitted, the handler searches running instances in the configured region.
+
+Requires AWS credentials in _chaddr.conf_.
+
+=== aliyun elastic ip
+
+Diagnose and renew (reallocate) an Aliyun Elastic IP.
+
+*region: ⟨REGION⟩*::
+  Aliyun region ID or alias ( _cn1_, _cn2_, _cn3_, _sg1_, _hk1_, etc.).
+*instance: ⟨ID⟩*::
+  *instance_id: ⟨ID⟩*;;
+    Optional ECS instance ID. When omitted, the handler searches running instances.
+
+Requires Aliyun credentials in _chaddr.conf_.
+
+=== registered nameserver
+
+Diagnose and manually apply IP changes to registered nameservers (Namecheap).
+
+*api: namecheap*::
+  Namecheap API (required).
+*ns: ⟨HOSTS⟩*::
+  Comma-separated nameserver hostnames, for example _ns1.example.com_, _ns2.example.com_.
+*domain: ⟨DOMAIN⟩*::
+  *ns_domain: ⟨DOMAIN⟩*;;
+    Optional parent domain. When omitted, the domain is derived from the first nameserver hostname.
+
+Apply sets each configured nameserver glue record to the selected new IPv4. The profile *from:* address map is not used to match current glue IPs; only the *ns:* hostnames matter.
+
+Requires Namecheap API credentials in _chaddr.conf_.
+
+=== hosts file
+
+Diagnose and manually apply IP changes in a local *hosts*(5) file.
+
+*path: ⟨FILE⟩*::
+  Path to the hosts file (for example _/etc/hosts_).
+*host: ⟨NAMES⟩*::
+  *hosts: ⟨NAMES⟩*;;
+    Optional comma-separated hostnames to limit which lines are considered. When omitted, all lines matching spare/old IP addresses are updated.
+
+=== zone file
+
+Diagnose and manually apply IP changes in a BIND zone file. The legacy type name *bind db* is still accepted.
+
+*path: ⟨FILE⟩*::
+  Path to the zone database file.
+*record: ⟨NAMES⟩*::
+  *name: ⟨NAMES⟩*;;
+    Optional comma-separated record names to limit which A records are updated.
+
+=== file
+
+Diagnose and manually apply IP changes in a plain-text file (for example Makefiles, config snippets, or sources list files).
+
+*path: ⟨FILE⟩*::
+  Path to the file.
+
+IPv4 and IPv6 literals are matched with alphanumeric lookbehind/lookahead (not word boundaries), so dotted addresses inside longer tokens are not matched. Spare/old IP candidates from *history-addr* / *addr-history ,* *from:* blocks, and *--old-ip* determine which literals to replace.
+
+=== changelog
+
+Append a Debian-style changelog entry when an IP address is applied.
+
+*path: ⟨FILE⟩*::
+  Path to the _debian/changelog_ file.
+
+Shorthand form is also accepted:
+
+____
+*changelog: ⟨FILE⟩*
+____
+
+On apply, the handler bumps the last numeric component of the top version, reuses the previous distribution name (falling back past *UNRELEASED* when needed), keeps the previous author trailer, and inserts a new entry:
+
+____
+....
+package (1.0.106) testing; urgency=medium
+
+  * chaddr IPv4 from <old> to <new>
+
+ -- Author Name <email>  Day, DD Mon YYYY HH:MM:SS +ZZZZ
+....
+____
+
+=== router
+
+Diagnose and manually apply IP changes to a LAN router over SSH. Currently supports OpenWrt UCI updates for Shadowsocks remote server addresses.
+
+*system: openwrt*::
+  Router OS (required; only *openwrt* is supported).
+*config: shadowsocks remote server*::
+  Update UCI *server* sections under _shadowsocks-libev_ or _shadowsocks_.
+*user: ⟨NAME⟩*::
+  SSH username (default *root*).
+*password: ⟨SECRET⟩*::
+  SSH password. May instead be supplied as *router_password* in _chaddr.conf_.
+*host: ⟨ADDR⟩*::
+  *gateway: ⟨ADDR⟩*;;
+    Optional router address. When omitted, the IPv4 default gateway from _/proc/net/route_ is used.
+  *port: ⟨N⟩*;;
+    *ssh_port: ⟨N⟩*::
+      Optional SSH port (default *22*).
+    *optional: true*::
+      When set, the instruction is listed in the GUI Instructions tab but deselected by default (CLI still runs it unless filtered).
+
+Requires *python3-paramiko* for SSH.
+
+Example:
+
+____
+....
+type: router
+optional: true
+system: openwrt
+user: root
+password: secret
+config: shadowsocks remote server
+....
+____
+
+== ACTIONS BY TYPE
+
+*Diagnose*::
+  All supported types.
+*Renew (reallocate)*::
+  *aws elastic ip* and *aliyun elastic ip* only.
+*Apply (manual IP change)*::
+  *registered nameserver ,* **hosts**file**,** **zone**file**,** *file*, *changelog*, and *router*.
+
+== EXAMPLE
+
+____
+....
+# chaddr example profile
+description: Example relay
+version: 1
+history-addr: 198.51.100.4 "2026-06-24 12:00:00"
+history-addr: 2001:db8::1 "2026-06-24 12:00:00"
+history-addr: 203.0.113.10 "2026-06-25 09:15:00"
+
+from: resolve
+resolve: relay.example.com
+
+type: aws elastic ip
+region: us-east-1
+
+type: aliyun elastic ip
+region: cn-hangzhou
+
+type: registered nameserver
+api: namecheap
+ns: ns1.example.com, \
+   ns2.example.com
+
+type: hosts file
+path: /etc/hosts
+
+type: zone file
+path: /var/cache/bind/db.example.com
+
+type: router
+optional: true
+system: openwrt
+user: root
+password: secret
+config: shadowsocks remote server
+....
+____
+
+== SEE ALSO
+
+*chaddr*(1), *hosts*(5), *named*(8)
+
+== AUTHOR
+
+Lenik &lt;chaddr@bodz.net&gt;
+
+== COPYRIGHT
+
+Copyright © 2026 Lenik. License AGPL-3.0-or-later; see LICENSE in the source distribution.

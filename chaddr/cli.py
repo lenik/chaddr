@@ -13,6 +13,7 @@ if sys.platform.startswith("linux") and "GTK_A11Y" not in os.environ:
 from chaddr.address import AddressSet, is_ipv4, is_ipv6, parse_address_set
 from chaddr.config import load_config, resolve_client_ip
 from chaddr.gui.app import run_gui
+from chaddr.i18n import _, init_i18n
 from chaddr.orchestrator import apply_address_profile, diagnose_profile, reallocate_profile
 from chaddr.profile import Profile, ensure_profile_dir, list_profiles, list_profile_candidate_addresses, load_profile
 from chaddr.proxy import apply_proxy_env, log_proxy_hint, restore_proxy_env
@@ -39,41 +40,70 @@ def _parse_option_flags(unknown: list[str]) -> dict:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="chaddr",
-        description="Change or reallocate IP addresses defined in profile files.",
+        description=_("Change or reallocate IP addresses defined in profile files."),
     )
     parser.add_argument(
         "profiles",
         nargs="*",
-        help="Profile name(s) under ~/.config/chaddr/profile/ (override with CHADDR_PROFILE_DIR)",
+        help=_("Profile name(s) under ~/.config/chaddr/profile/ (override with CHADDR_PROFILE_DIR)"),
     )
     parser.add_argument(
         "-c",
         "--config",
-        metavar="FILE",
-        help="JSON config file with API keys/secrets (default: ./chaddr.conf or ~/.config/chaddr/chaddr.conf)",
+        metavar=_("FILE"),
+        help=_("JSON config file with API keys/secrets (default: ./chaddr.conf or ~/.config/chaddr/chaddr.conf)"),
     )
     parser.add_argument(
         "--proxy",
-        help="Proxy URL, e.g. socks5://127.0.0.1:1080 or http://127.0.0.1:8080",
+        help=_("Proxy URL, e.g. socks5://127.0.0.1:1080 or http://127.0.0.1:8080"),
     )
     parser.add_argument(
         "--diagnose",
         action="store_true",
-        help="Run diagnosis only (CLI mode); with --apply IP, that IP is the diagnose target",
+        help=_("Run diagnosis only (CLI mode); with --apply IP, that IP is the diagnose target"),
     )
     parser.add_argument(
         "-A",
         "--addresses",
         action="store_true",
-        help="List all candidate addresses for profile(s) (CLI mode)",
+        help=_("List all candidate addresses for profile(s) (CLI mode)"),
     )
-    parser.add_argument("--renew", action="store_true", help="Reallocate elastic IP and propagate (CLI mode)")
-    parser.add_argument("--apply", metavar="IP", help="Manually apply IPv4/IPv6 to profile (CLI mode)")
-    parser.add_argument("--apply-ipv4", metavar="IP", help="New IPv4 for manual apply")
-    parser.add_argument("--apply-ipv6", metavar="IP", help="New IPv6 for manual apply")
-    parser.add_argument("--old-ip", help="Old IP for manual apply when auto-detection fails")
-    parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase logging verbosity")
-    parser.add_argument("--no-gui", action="store_true", help="Force CLI mode even without action flags")
+    parser.add_argument(
+        "--renew",
+        action="store_true",
+        help=_("Reallocate elastic IP and propagate (CLI mode)"),
+    )
+    parser.add_argument(
+        "--apply",
+        metavar=_("IP"),
+        help=_("Manually apply IPv4/IPv6 to profile (CLI mode)"),
+    )
+    parser.add_argument(
+        "--apply-ipv4",
+        metavar=_("IP"),
+        help=_("New IPv4 for manual apply"),
+    )
+    parser.add_argument(
+        "--apply-ipv6",
+        metavar=_("IP"),
+        help=_("New IPv6 for manual apply"),
+    )
+    parser.add_argument(
+        "--old-ip",
+        help=_("Old IP for manual apply when auto-detection fails"),
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help=_("Increase logging verbosity"),
+    )
+    parser.add_argument(
+        "--no-gui",
+        action="store_true",
+        help=_("Force CLI mode even without action flags"),
+    )
     return parser
 
 
@@ -194,7 +224,7 @@ def _run_cli(
                 logger.error("Profile %s: %s", name, result.message)
                 exit_code = 1
         else:
-            logger.error("No CLI action specified; use --diagnose, --renew, or --apply")
+            logger.error(_("No CLI action specified; use --diagnose, --renew, or --apply"))
             return 2
     return exit_code
 
@@ -206,6 +236,7 @@ def _merge_options(config_options: dict, cli_options: dict) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    init_i18n(sys.argv[0] if argv is None else (argv[0] if argv else sys.argv[0]))
     parser = _build_parser()
     args, unknown = parser.parse_known_args(argv)
     flag_options = _parse_option_flags(unknown)

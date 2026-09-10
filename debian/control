@@ -6,9 +6,11 @@ Build-Depends: debhelper-compat (= 13),
                meson,
                ninja-build,
                python3-all,
+               gettext,
                bash-completion,
- asciidoctor
+               asciidoctor
 Standards-Version: 4.6.2
+Homepage: https://github.com/lenik/chaddr
 Rules-Requires-Root: no
 
 Package: chaddr

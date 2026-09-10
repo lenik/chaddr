@@ -1,3 +1,22 @@
+chaddr (1.0.8) testing; urgency=medium
+
+  * Align packaging/Meson/man pages to current zephyr style (zfr ize).
+  * add docs/fr/chaddr-profile.adoc: L1 man locale scaffold from English
+  * add docs/it/chaddr-profile.adoc: L1 man locale scaffold from English
+  * add docs/de/chaddr-profile.adoc: L1 man locale scaffold from English
+  * add docs/es_MX/chaddr-profile.adoc: L1 man locale scaffold from English
+  * add docs/zh_CN/chaddr-profile.adoc: L1 man locale scaffold from English
+  * add docs/ja/chaddr-profile.adoc: L1 man locale scaffold from English
+  * add docs/ko/chaddr-profile.adoc: L1 man locale scaffold from English
+  * add docs/ar/chaddr-profile.adoc: L1 man locale scaffold from English
+  * add docs/fr/chaddr.adoc: L1 man locale scaffold from English
+  * add docs/it/chaddr.adoc: L1 man locale scaffold from English
+  * add docs/de/chaddr.adoc: L1 man locale scaffold from English
+  * add docs/es_MX/chaddr.adoc: L1 man locale scaffold from English
+  * …and 14 more path updates.
+
+ -- Lenik (谢继雷) <lenik@bodz.net>  Thu, 10 Sep 2026 09:18:33 +0800
+
 chaddr (1.0.7) testing; urgency=medium
 
   * Align packaging/Meson/man pages to current zephyr style (zfr ize).

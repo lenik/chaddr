@@ -1,0 +1,64 @@
+# Arabic translations for chaddr.
+# Copyright (C) 2026 Lenik <lenik@bodz.net>
+# This file is distributed under the same license as the chaddr package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: chaddr 1.0.7\n"
+"Report-Msgid-Bugs-To: lenik@bodz.net\n"
+"POT-Creation-Date: 2026-09-10 09:16+0800\n"
+"PO-Revision-Date: 2026-09-10 09:17+0800\n"
+"Last-Translator: Lenik <lenik@bodz.net>\n"
+"Language-Team: ar\n"
+"Language: ar\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Change or reallocate IP addresses defined in profile files."
+msgstr "تغيير أو إعادة تخصيص عناوين IP المعرفة في ملفات التعريف."
+
+msgid "Profile name(s) under ~/.config/chaddr/profile/ (override with CHADDR_PROFILE_DIR)"
+msgstr "اسم/أسماء الملف الشخصي تحت ~/.config/chaddr/profile/ (تجاوز عبر CHADDR_PROFILE_DIR)"
+
+msgid "FILE"
+msgstr "ملف"
+
+msgid "JSON config file with API keys/secrets (default: ./chaddr.conf or ~/.config/chaddr/chaddr.conf)"
+msgstr "ملف إعدادات JSON بمفاتيح/أسرار API (الافتراضي: ./chaddr.conf أو ~/.config/chaddr/chaddr.conf)"
+
+msgid "Proxy URL, e.g. socks5://127.0.0.1:1080 or http://127.0.0.1:8080"
+msgstr "عنوان وكيل، مثل socks5://127.0.0.1:1080 أو http://127.0.0.1:8080"
+
+msgid "Run diagnosis only (CLI mode); with --apply IP, that IP is the diagnose target"
+msgstr "تشغيل التشخيص فقط (وضع CLI)؛ مع --apply IP يصبح ذلك العنوان هدف التشخيص"
+
+msgid "List all candidate addresses for profile(s) (CLI mode)"
+msgstr "سرد كل العناوين المرشحة للملف/الملفات الشخصية (وضع CLI)"
+
+msgid "Reallocate elastic IP and propagate (CLI mode)"
+msgstr "إعادة تخصيص IP المرن ونشره (وضع CLI)"
+
+msgid "IP"
+msgstr "IP"
+
+msgid "Manually apply IPv4/IPv6 to profile (CLI mode)"
+msgstr "تطبيق IPv4/IPv6 يدوياً على الملف الشخصي (وضع CLI)"
+
+msgid "New IPv4 for manual apply"
+msgstr "IPv4 جديد للتطبيق اليدوي"
+
+msgid "New IPv6 for manual apply"
+msgstr "IPv6 جديد للتطبيق اليدوي"
+
+msgid "Old IP for manual apply when auto-detection fails"
+msgstr "عنوان IP القديم للتطبيق اليدوي عند فشل الاكتشاف التلقائي"
+
+msgid "Increase logging verbosity"
+msgstr "زيادة تفصيل السجلات"
+
+msgid "Force CLI mode even without action flags"
+msgstr "فرض وضع CLI حتى بدون أعلام إجراءات"
+
+msgid "No CLI action specified; use --diagnose, --renew, or --apply"
+msgstr "لم يُحدد إجراء CLI؛ استخدم --diagnose أو --renew أو --apply"

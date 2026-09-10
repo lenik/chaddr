@@ -1,0 +1,64 @@
+# Italian translations for chaddr.
+# Copyright (C) 2026 Lenik <lenik@bodz.net>
+# This file is distributed under the same license as the chaddr package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: chaddr 1.0.7\n"
+"Report-Msgid-Bugs-To: lenik@bodz.net\n"
+"POT-Creation-Date: 2026-09-10 09:16+0800\n"
+"PO-Revision-Date: 2026-09-10 09:17+0800\n"
+"Last-Translator: Lenik <lenik@bodz.net>\n"
+"Language-Team: it\n"
+"Language: it\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Change or reallocate IP addresses defined in profile files."
+msgstr "Modifica o riassegna gli indirizzi IP definiti nei file di profilo."
+
+msgid "Profile name(s) under ~/.config/chaddr/profile/ (override with CHADDR_PROFILE_DIR)"
+msgstr "Nome/i profilo sotto ~/.config/chaddr/profile/ (override con CHADDR_PROFILE_DIR)"
+
+msgid "FILE"
+msgstr "FILE"
+
+msgid "JSON config file with API keys/secrets (default: ./chaddr.conf or ~/.config/chaddr/chaddr.conf)"
+msgstr "File di config JSON con chiavi/segreti API (predefinito: ./chaddr.conf o ~/.config/chaddr/chaddr.conf)"
+
+msgid "Proxy URL, e.g. socks5://127.0.0.1:1080 or http://127.0.0.1:8080"
+msgstr "URL del proxy, ad es. socks5://127.0.0.1:1080 o http://127.0.0.1:8080"
+
+msgid "Run diagnosis only (CLI mode); with --apply IP, that IP is the diagnose target"
+msgstr "Esegui solo la diagnosi (modalità CLI); con --apply IP, quell'IP è l'obiettivo"
+
+msgid "List all candidate addresses for profile(s) (CLI mode)"
+msgstr "Elenca tutti gli indirizzi candidati per i profili (modalità CLI)"
+
+msgid "Reallocate elastic IP and propagate (CLI mode)"
+msgstr "Riassegna l'IP elastico e propaga (modalità CLI)"
+
+msgid "IP"
+msgstr "IP"
+
+msgid "Manually apply IPv4/IPv6 to profile (CLI mode)"
+msgstr "Applica manualmente IPv4/IPv6 al profilo (modalità CLI)"
+
+msgid "New IPv4 for manual apply"
+msgstr "Nuovo IPv4 per applicazione manuale"
+
+msgid "New IPv6 for manual apply"
+msgstr "Nuovo IPv6 per applicazione manuale"
+
+msgid "Old IP for manual apply when auto-detection fails"
+msgstr "Vecchio IP per applicazione manuale se il rilevamento automatico fallisce"
+
+msgid "Increase logging verbosity"
+msgstr "Aumenta la verbosità dei log"
+
+msgid "Force CLI mode even without action flags"
+msgstr "Forza la modalità CLI anche senza flag di azione"
+
+msgid "No CLI action specified; use --diagnose, --renew, or --apply"
+msgstr "Nessuna azione CLI specificata; usare --diagnose, --renew o --apply"
