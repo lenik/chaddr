@@ -1,3 +1,11 @@
+chaddr (1.0.9) testing; urgency=medium
+
+  * RPM %files: include bindir, Python package, and bash-completion
+  * meson: rename man_puffs to puffs
+  * Track packaging/rpm/chaddr.spec (gitignore exception)
+
+ -- Lenik (谢继雷) <lenik@bodz.net>  Thu, 10 Sep 2026 09:26:00 +0800
+
 chaddr (1.0.8) testing; urgency=medium
 
   * gettext i18n for CLI strings with L1 catalogs (ar, de, es_MX, fr, it, ja,

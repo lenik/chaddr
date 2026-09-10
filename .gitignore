@@ -52,6 +52,7 @@
 *.so
 *.so.*
 *.spec
+!packaging/rpm/*.spec
 *.substvars
 *.swo
 *.swp

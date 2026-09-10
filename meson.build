@@ -195,7 +195,7 @@ install_data(
     install_dir: pkgdocdir,
 )
 
-man_puffs = [
+puffs = [
     'chaddr',
     'chaddr-profile',
 ]
@@ -207,7 +207,7 @@ foreach lang : ['ar', 'de', 'es_MX', 'fr', 'it', 'ja', 'ko', 'zh_CN']
 endforeach
 
 man_i18n_built = []
-foreach puff : man_puffs
+foreach puff : puffs
   custom_target(
     puff + '-man',
     input: 'docs' / (puff + '.adoc'),
