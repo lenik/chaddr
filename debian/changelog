@@ -1,21 +1,15 @@
 chaddr (1.0.8) testing; urgency=medium
 
-  * Align packaging/Meson/man pages to current zephyr style (zfr ize).
-  * add docs/fr/chaddr-profile.adoc: L1 man locale scaffold from English
-  * add docs/it/chaddr-profile.adoc: L1 man locale scaffold from English
-  * add docs/de/chaddr-profile.adoc: L1 man locale scaffold from English
-  * add docs/es_MX/chaddr-profile.adoc: L1 man locale scaffold from English
-  * add docs/zh_CN/chaddr-profile.adoc: L1 man locale scaffold from English
-  * add docs/ja/chaddr-profile.adoc: L1 man locale scaffold from English
-  * add docs/ko/chaddr-profile.adoc: L1 man locale scaffold from English
-  * add docs/ar/chaddr-profile.adoc: L1 man locale scaffold from English
-  * add docs/fr/chaddr.adoc: L1 man locale scaffold from English
-  * add docs/it/chaddr.adoc: L1 man locale scaffold from English
-  * add docs/de/chaddr.adoc: L1 man locale scaffold from English
-  * add docs/es_MX/chaddr.adoc: L1 man locale scaffold from English
-  * …and 14 more path updates.
+  * gettext i18n for CLI strings with L1 catalogs (ar, de, es_MX, fr, it, ja,
+    ko, zh_CN); Meson installs .mo files and derived child locales via
+    zfr i18n -b
+  * L1 whole-document man page locales under docs/<locale>/; Meson builds and
+    installs them to share/man/<locale>/man1/
+  * Align packaging/Meson to current zephyr style (zfr ize): asciidoctor man
+    pages, debian meson builddirectory, unit tests, RPM locale %files
+  * Satisfy zfr lint (Homepage/URL, debian/rules, po --no-wrap, man coverage)
 
- -- Lenik (谢继雷) <lenik@bodz.net>  Thu, 10 Sep 2026 09:18:33 +0800
+ -- Lenik (谢继雷) <lenik@bodz.net>  Thu, 10 Sep 2026 09:30:00 +0800
 
 chaddr (1.0.7) testing; urgency=medium
 

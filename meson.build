@@ -140,22 +140,6 @@ install_data(
     install_dir: doc_dir,
 )
 
-configure_file(
-    input: 'man/chaddr.1.in',
-    output: 'chaddr.1',
-    configuration: chaddr_conf,
-    install: true,
-    install_dir: get_option('mandir') / 'man1',
-)
-
-configure_file(
-    input: 'man/chaddr-profile.5.in',
-    output: 'chaddr-profile.5',
-    configuration: chaddr_conf,
-    install: true,
-    install_dir: get_option('mandir') / 'man5',
-)
-
 install_data(
     'chaddr.bash',
     rename: 'chaddr',
@@ -215,6 +199,14 @@ man_puffs = [
     'chaddr',
     'chaddr-profile',
 ]
+man_i18n_langs = []
+foreach lang : ['ar', 'de', 'es_MX', 'fr', 'it', 'ja', 'ko', 'zh_CN']
+  if fs.is_dir('docs' / lang)
+    man_i18n_langs += [lang]
+  endif
+endforeach
+
+man_i18n_built = []
 foreach puff : man_puffs
   custom_target(
     puff + '-man',
@@ -234,4 +226,49 @@ foreach puff : man_puffs
     install: true,
     install_dir: mandir / 'man1',
   )
+  foreach lang : man_i18n_langs
+    man_i18n_built += custom_target(
+      puff + '-' + lang + '-man',
+      input: 'docs' / lang / (puff + '.adoc'),
+      output: puff + '--' + lang + '.1',
+      command: [
+        asciidoctor,
+        '-b', 'manpage',
+        '-a', 'project-version=' + meson.project_version(),
+        '-a', 'project-year=@0@'.format(project_year),
+        '-a', 'project-author=' + project_author,
+        '-a', 'project-email=' + project_email,
+        '-o', '@OUTPUT@',
+        '@INPUT@',
+      ],
+      build_by_default: true,
+    )
+  endforeach
 endforeach
+
+meson.add_install_script(
+  find_program('python3'),
+  '-c',
+  '''
+import os, sys, pathlib, shutil
+build = pathlib.Path(sys.argv[1])
+mandir = sys.argv[2]
+dest = os.environ.get("MESON_INSTALL_DESTDIR_PREFIX") or (
+    os.environ.get("DESTDIR", "") + os.environ.get("MESON_INSTALL_PREFIX", "")
+)
+for name in sys.argv[3:]:
+    # chaddr--zh_CN.1 or chaddr-profile--es_MX.1
+    if "--" not in name or not name.endswith(".1"):
+        raise SystemExit("unexpected man artifact: " + name)
+    stem, lang = name[:-2].rsplit("--", 1)
+    src = build / name
+    if not src.is_file():
+        raise SystemExit("missing built man page: " + str(src))
+    outdir = pathlib.Path(dest) / mandir / lang / "man1"
+    outdir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, outdir / (stem + ".1"))
+''',
+  meson.project_build_root(),
+  get_option('mandir'),
+  man_i18n_built,
+)
