@@ -235,7 +235,62 @@ class RegisteredNameserverHandler(AddressTypeHandler):
             )
 
         unique = sorted(set(addresses))
-        if len(unique) > 1:
+        history_ips = {
+            ip for ip in self._apply_match_spare().ipv4 if is_ipv4(ip)
+        }
+        matched_current = [ip for ip in unique if ip in history_ips]
+        expected = self._expected_addresses()
+        expected_v4 = expected.ipv4 if expected else None
+
+        if unique and not matched_current:
+            # Current glue is not in addr-history/spare — do not treat as apply target.
+            items.append(
+                DiagnoseItem(
+                    "apply",
+                    True,
+                    f"skipped (no history match for {', '.join(unique)})",
+                )
+            )
+            if len(unique) > 1:
+                items.append(
+                    DiagnoseItem(
+                        "consistency",
+                        False,
+                        f"multiple IPs found: {', '.join(unique)}",
+                        "All nameservers in the profile should point to the same address.",
+                    )
+                )
+            else:
+                items.append(
+                    DiagnoseItem(
+                        "consistency",
+                        True,
+                        f"{unique[0]} (ignored; not in history)",
+                    )
+                )
+        elif expected_v4:
+            items.append(DiagnoseItem("expected", True, expected_v4))
+            if not unique:
+                items.append(
+                    DiagnoseItem(
+                        "consistency",
+                        False,
+                        f"no nameserver IPs (expected {expected_v4})",
+                        "Register glue records or Apply the selected address.",
+                    )
+                )
+            elif unique == [expected_v4]:
+                items.append(DiagnoseItem("consistency", True, expected_v4))
+            else:
+                items.append(
+                    DiagnoseItem(
+                        "consistency",
+                        False,
+                        f"{', '.join(unique)} (expected {expected_v4})",
+                        "Apply the selected address to update nameserver glue records.",
+                    )
+                )
+        elif len(unique) > 1:
             items.append(
                 DiagnoseItem(
                     "consistency",
@@ -248,10 +303,19 @@ class RegisteredNameserverHandler(AddressTypeHandler):
             items.append(DiagnoseItem("consistency", True, unique[0]))
 
         ok = all(item.ok for item in items)
-        return DiagnoseResult(self.type_name, "ready" if ok else "issues found", ok, items, unique)
+        # When apply is skipped (no history match), omit addresses so profile-level
+        # consistency does not demand an Apply against unmanaged glue.
+        result_addresses = unique if matched_current or not unique else []
+        return DiagnoseResult(
+            self.type_name,
+            "ready" if ok else "issues found",
+            ok,
+            items,
+            result_addresses,
+        )
 
     def apply_address_map(self, old: AddressSet, new: AddressSet) -> bool:
-        """Update configured glue NS to *new* IPv4; ignore profile old-address map."""
+        """Update NS glue to *new* IPv4 only when current glue matches history/spare."""
         if not new.ipv4:
             self.logger.warning("[%s] skip: no new IPv4 selected", self.type_name)
             return False
@@ -273,7 +337,7 @@ class RegisteredNameserverHandler(AddressTypeHandler):
             )
         changed = self.apply_manual("", new.ipv4)
         if not changed:
-            self.logger.info("[%s] all nameservers already at %s", self.type_name, new.ipv4)
+            self.logger.info("[%s] no nameserver updates applied", self.type_name)
         return changed
 
     def apply_manual(self, old_ip: str, new_ip: str) -> bool:
@@ -285,6 +349,9 @@ class RegisteredNameserverHandler(AddressTypeHandler):
             raise RuntimeError(f"unsupported api: {api}")
 
         mapping = self._get_namecheap_ips()
+        history_ips = {
+            ip for ip in self._apply_match_spare().ipv4 if is_ipv4(ip)
+        }
         self.logger.info(
             "Namecheap nameservers %s: current mapping %s",
             ", ".join(self._ns_hosts()),
@@ -296,7 +363,14 @@ class RegisteredNameserverHandler(AddressTypeHandler):
             if current == new_ip:
                 self.logger.info("Nameserver %s already set to %s", host, new_ip)
                 continue
-            self.logger.info("Updating nameserver %s: %s -> %s", host, current or "(none)", new_ip)
+            if not current or current not in history_ips:
+                self.logger.info(
+                    "Nameserver %s at %s has no history match; skip update",
+                    host,
+                    current or "(none)",
+                )
+                continue
+            self.logger.info("Updating nameserver %s: %s -> %s", host, current, new_ip)
             self._set_namecheap_ip(host, new_ip, current=current)
             changed = True
         return changed

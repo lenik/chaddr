@@ -57,6 +57,9 @@ def _apply_lines(diag: DiagnoseResult) -> list[str]:
         return [header]
     if type_name == "registered nameserver":
         nameservers = diag_item_detail(diag, "nameservers")
+        target = diag_item_detail(diag, "expected") or diag_item_detail(diag, "target")
+        if nameservers and target:
+            return [f"  [Apply] Updates Namecheap glue IP for {nameservers} -> {target}"]
         if nameservers:
             return [f"  [Apply] Updates Namecheap glue IP for {nameservers}"]
         return ["  [Apply] Updates Namecheap registered nameserver glue records"]

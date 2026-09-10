@@ -46,39 +46,110 @@ class AwsElasticIpHandler(AddressTypeHandler):
             kwargs["config"] = config
         return boto3.client("ec2", region_name=self._resolve_region(), **kwargs)
 
-    def _find_primary_instance(self, ec2):
-        region = self._resolve_region()
-        instance_id = self.config.get("instance") or self.config.get("instance_id")
+    def _nic_id(self) -> str:
+        return (
+            self.config.get("nic")
+            or self.config.get("eni")
+            or self.config.get("network_interface")
+            or self.config.get("network_interface_id")
+            or ""
+        ).strip()
+
+    def _instance_id(self) -> str:
+        return (self.config.get("instance") or self.config.get("instance_id") or "").strip()
+
+    def _scope_label(self) -> str:
+        """GUI / diagnose label: ec2 nic | ec2."""
+        from chaddr.profile import canonical_from_type_label
+
+        explicit = (self.config.get("from_type") or "").strip()
+        if explicit:
+            return canonical_from_type_label(explicit)
+        if self._nic_id():
+            return "ec2 nic"
+        return "ec2"
+
+    def _is_nic_scope(self) -> bool:
+        label = self._scope_label()
+        return label.endswith(" nic") or bool(self._nic_id())
+
+    @staticmethod
+    def _bindings_from_iface(iface: dict, instance_id: str | None = None) -> list[dict]:
+        """Public IPv4 bindings on one ENI (primary private preferred first)."""
+        eni_id = iface.get("NetworkInterfaceId") or ""
+        attachment = iface.get("Attachment") or {}
+        attached_instance = instance_id or attachment.get("InstanceId") or ""
+        primary: list[dict] = []
+        secondary: list[dict] = []
+        for private in iface.get("PrivateIpAddresses", []):
+            pub = (private.get("Association") or {}).get("PublicIp")
+            if not is_ipv4(pub):
+                continue
+            binding = {
+                "instance_id": attached_instance,
+                "network_interface_id": eni_id,
+                "private_ip": private.get("PrivateIpAddress"),
+                "public_ip": pub,
+                "primary_private": bool(private.get("Primary")),
+            }
+            if private.get("Primary"):
+                primary.append(binding)
+            else:
+                secondary.append(binding)
+        return primary + secondary
+
+    def _bindings_from_instance(self, instance: dict) -> list[dict]:
+        """All public IPv4 bindings on every NIC of the instance."""
+        instance_id = instance["InstanceId"]
+        bindings: list[dict] = []
+        for iface in instance.get("NetworkInterfaces", []):
+            bindings.extend(self._bindings_from_iface(iface, instance_id))
+        if bindings:
+            return bindings
+        # Fallback when NetworkInterfaces omit associations.
+        pub = instance.get("PublicIpAddress")
+        private = instance.get("PrivateIpAddress")
+        if is_ipv4(pub):
+            return [
+                {
+                    "instance_id": instance_id,
+                    "network_interface_id": "",
+                    "private_ip": private,
+                    "public_ip": pub,
+                    "primary_private": True,
+                }
+            ]
+        return []
+
+    def _find_bindings(self, ec2) -> list[dict]:
+        """Resolve public IP bindings from nic: or instance: scope."""
+        nic_id = self._nic_id()
+        if nic_id:
+            response = ec2.describe_network_interfaces(NetworkInterfaceIds=[nic_id])
+            interfaces = response.get("NetworkInterfaces", [])
+            if not interfaces:
+                return []
+            return self._bindings_from_iface(interfaces[0])
+
+        instance_id = self._instance_id()
         if instance_id:
             response = ec2.describe_instances(InstanceIds=[instance_id])
             reservations = response.get("Reservations", [])
-            if reservations:
-                return self._extract_primary(reservations[0]["Instances"][0])
-            return None
+            if not reservations:
+                return []
+            return self._bindings_from_instance(reservations[0]["Instances"][0])
 
+        region = self._resolve_region()
         self.logger.info("Searching running instances in region %s", region)
         response = ec2.describe_instances(
             Filters=[{"Name": "instance-state-name", "Values": ["running"]}]
         )
         for reservation in response.get("Reservations", []):
             for instance in reservation.get("Instances", []):
-                found = self._extract_primary(instance)
+                found = self._bindings_from_instance(instance)
                 if found:
                     return found
-        return None
-
-    def _extract_primary(self, instance) -> dict | None:
-        for iface in instance.get("NetworkInterfaces", []):
-            for private in iface.get("PrivateIpAddresses", []):
-                if private.get("Primary"):
-                    pub = private.get("Association", {}).get("PublicIp")
-                    if is_ipv4(pub):
-                        return {
-                            "instance_id": instance["InstanceId"],
-                            "private_ip": private.get("PrivateIpAddress"),
-                            "public_ip": pub,
-                        }
-        return None
+        return []
 
     def diagnose(self) -> DiagnoseResult:
         items: list[DiagnoseItem] = []
@@ -113,33 +184,40 @@ class AwsElasticIpHandler(AddressTypeHandler):
             )
             return DiagnoseResult(self.type_name, "AWS API unavailable", False, items, addresses)
 
+        nic_id = self._nic_id()
+        instance_id = self._instance_id()
+        scope_label = self._scope_label()
         try:
-            instance = self._find_primary_instance(ec2)
-            if instance:
-                addresses.append(instance["public_ip"])
-                items.append(
-                    DiagnoseItem(
-                        "instance",
-                        True,
-                        f'{instance["instance_id"]} primary public IP {instance["public_ip"]}',
-                    )
-                )
+            bindings = self._find_bindings(ec2)
+            if bindings:
+                for binding in bindings:
+                    addresses.append(binding["public_ip"])
+                summary_ips = ", ".join(binding["public_ip"] for binding in bindings)
+                if self._is_nic_scope() and nic_id:
+                    detail = f"{nic_id} public IP {summary_ips}"
+                    if bindings[0].get("instance_id"):
+                        detail = f"{bindings[0]['instance_id']} {detail}"
+                else:
+                    detail = f"{bindings[0]['instance_id']} public IP {summary_ips}"
+                items.append(DiagnoseItem(scope_label, True, detail))
             else:
-                items.append(
-                    DiagnoseItem(
-                        "instance",
-                        False,
-                        "no running instance with primary public IPv4 found",
-                        "Start an EC2 instance in this region or attach an Elastic IP.",
-                    )
-                )
+                if nic_id:
+                    guidance = "Attach an Elastic IP to a private address on this ENI."
+                    detail = f"no public IPv4 on NIC {nic_id}"
+                elif instance_id:
+                    guidance = "Attach an Elastic IP to the instance or one of its ENIs."
+                    detail = f"no public IPv4 on instance {instance_id}"
+                else:
+                    guidance = "Start an EC2 instance in this region or attach an Elastic IP."
+                    detail = "no running instance with public IPv4 found"
+                items.append(DiagnoseItem(scope_label, False, detail, guidance))
         except Exception as exc:
             items.append(
                 DiagnoseItem(
-                    "instance lookup",
+                    f"{scope_label} lookup",
                     False,
                     str(exc),
-                    "Verify EC2 permissions: DescribeInstances, DescribeAddresses.",
+                    "Verify EC2 permissions: DescribeInstances, DescribeNetworkInterfaces, DescribeAddresses.",
                 )
             )
 
@@ -155,14 +233,38 @@ class AwsElasticIpHandler(AddressTypeHandler):
             return SpareFromAddresses.from_address_sets(self._source_addresses)
         return SpareFromAddresses()
 
-    def _reallocate_release_candidates(self, instance_public_ip: str) -> set[str]:
-        candidates: set[str] = set()
-        if is_ipv4(instance_public_ip):
-            candidates.add(instance_public_ip)
-        for ip in self._effective_spare().ipv4:
-            if is_ipv4(ip):
-                candidates.add(ip)
-        return candidates
+    def _reallocate_release_candidates(self, binding_public_ips: list[str]) -> set[str]:
+        # Only release IPs we are about to replace — do not touch other NICs via spare.
+        return {ip for ip in binding_public_ips if is_ipv4(ip)}
+
+    def _bindings_for_reallocate(self, bindings: list[dict]) -> list[dict]:
+        """NIC scope: all bindings on that ENI. Instance scope: only history/spare matches."""
+        if self._is_nic_scope():
+            return bindings
+        spare = self._effective_spare()
+        history_ips = {ip for ip in spare.ipv4 if is_ipv4(ip)}
+        if not history_ips:
+            self.logger.warning(
+                "ec2 instance renew: no addr-history/spare IPs; refusing to touch all public IPs"
+            )
+            return []
+        matched = [binding for binding in bindings if binding.get("public_ip") in history_ips]
+        skipped = [
+            binding["public_ip"]
+            for binding in bindings
+            if binding.get("public_ip") not in history_ips
+        ]
+        if skipped:
+            self.logger.info(
+                "ec2 instance renew: skipping public IP(s) not in history: %s",
+                ", ".join(skipped),
+            )
+        if matched:
+            self.logger.info(
+                "ec2 instance renew: history-matched public IP(s): %s",
+                ", ".join(binding["public_ip"] for binding in matched),
+            )
+        return matched
 
     def _release_owned_elastic_ips(self, ec2, candidates: set[str]) -> int:
         self.report_progress(0.08, "Listing Elastic IPs in region")
@@ -204,21 +306,71 @@ class AwsElasticIpHandler(AddressTypeHandler):
                     self.logger.warning("Release %s failed: %s", public_ip, exc)
         return released
 
+    def _associate_binding(self, ec2, *, allocation_id: str, binding: dict) -> None:
+        """Associate a new EIP onto the same private-IP slot (primary or secondary)."""
+        private_ip = binding.get("private_ip")
+        eni_id = binding.get("network_interface_id") or ""
+        instance_id = binding.get("instance_id") or ""
+        slot = "primary private" if binding.get("primary_private") else "secondary private"
+        if eni_id and private_ip:
+            self.logger.info(
+                "Associating allocation %s with NIC %s %s address %s",
+                allocation_id,
+                eni_id,
+                slot,
+                private_ip,
+            )
+            ec2.associate_address(
+                AllocationId=allocation_id,
+                NetworkInterfaceId=eni_id,
+                PrivateIpAddress=private_ip,
+                AllowReassociation=True,
+            )
+            return
+        if instance_id and private_ip:
+            self.logger.info(
+                "Associating allocation %s with instance %s private address %s",
+                allocation_id,
+                instance_id,
+                private_ip,
+            )
+            ec2.associate_address(
+                AllocationId=allocation_id,
+                InstanceId=instance_id,
+                PrivateIpAddress=private_ip,
+                AllowReassociation=True,
+            )
+            return
+        raise RuntimeError("binding missing network interface / instance and private IP for association")
+
     def reallocate(self) -> ReallocateResult:
         region = self._resolve_region()
         if not region:
             return ReallocateResult(False, message="region not configured")
 
         ec2 = self._client()
-        instance = self._find_primary_instance(ec2)
-        if not instance:
-            return ReallocateResult(False, message="no running instance with primary public IPv4 found")
+        bindings = self._find_bindings(ec2)
+        if not bindings:
+            nic_id = self._nic_id()
+            if nic_id:
+                return ReallocateResult(False, message=f"no public IPv4 on NIC {nic_id}")
+            instance_id = self._instance_id()
+            if instance_id:
+                return ReallocateResult(False, message=f"no public IPv4 on instance {instance_id}")
+            return ReallocateResult(False, message="no running instance with public IPv4 found")
 
-        instance_id = instance["instance_id"]
-        private_ip = instance["private_ip"]
-        old_ip = instance["public_ip"]
+        bindings = self._bindings_for_reallocate(bindings)
+        if not bindings:
+            return ReallocateResult(
+                False,
+                message=(
+                    "no public IPs match addr-history/spare; "
+                    "add the IP to addr-history or use from: ec2 nic"
+                ),
+            )
 
-        candidates = self._reallocate_release_candidates(old_ip)
+        old_ips = [binding["public_ip"] for binding in bindings]
+        candidates = self._reallocate_release_candidates(old_ips)
         self.logger.info(
             "Reallocate release candidates: %s",
             ", ".join(sorted(candidates)) or "(none)",
@@ -232,19 +384,31 @@ class AwsElasticIpHandler(AddressTypeHandler):
                 "No owned Elastic IPs to release among current address candidates; allocating new address",
             )
 
-        self.report_progress(0.6, f"Allocating new Elastic IP in {region}")
-        alloc = ec2.allocate_address(Domain="vpc")
-        new_ip = alloc.get("PublicIp")
-        if not is_ipv4(new_ip):
-            return ReallocateResult(False, old_ip=old_ip, message="allocate-address returned invalid IP")
+        new_ips: list[str] = []
+        total = len(bindings)
+        for index, binding in enumerate(bindings):
+            fraction = 0.55 + 0.4 * (index / max(total, 1))
+            self.report_progress(fraction, f"Allocating new Elastic IP in {region}")
+            alloc = ec2.allocate_address(Domain="vpc")
+            new_ip = alloc.get("PublicIp")
+            allocation_id = alloc.get("AllocationId")
+            if not is_ipv4(new_ip) or not allocation_id:
+                return ReallocateResult(
+                    False,
+                    old_ip=old_ips[0],
+                    message="allocate-address returned invalid IP/allocation",
+                )
+            slot = "primary private" if binding.get("primary_private") else "secondary private"
+            target = binding.get("network_interface_id") or binding.get("instance_id")
+            self.report_progress(
+                min(fraction + 0.05, 0.95),
+                f"Associating {new_ip} with {target} ({slot} {binding.get('private_ip')})",
+            )
+            self._associate_binding(ec2, allocation_id=allocation_id, binding=binding)
+            new_ips.append(new_ip)
 
-        self.report_progress(0.8, f"Associating {new_ip} with {instance_id} ({private_ip})")
-        ec2.associate_address(
-            InstanceId=instance_id,
-            PublicIp=new_ip,
-            AllowReassociation=True,
-            PrivateIpAddress=private_ip,
-        )
-
-        self.report_progress(1.0, f"Reallocated {old_ip} -> {new_ip}")
-        return ReallocateResult(True, old_ip=old_ip, new_ip=new_ip, message=f"{old_ip} -> {new_ip}")
+        old_ip = old_ips[0]
+        new_ip = new_ips[0]
+        message = ", ".join(f"{old} -> {new}" for old, new in zip(old_ips, new_ips))
+        self.report_progress(1.0, f"Reallocated {message}")
+        return ReallocateResult(True, old_ip=old_ip, new_ip=new_ip, message=message)

@@ -62,8 +62,9 @@ class SpareFromAddresses:
         return cls(ipv4=ipv4, ipv6=ipv6)
 
 
-SPARE_SOURCES = frozenset({"old-ip", "history", "resolve", "instance"})
-PROFILE_AUTO_SOURCES = frozenset({"old-ip", "history", "resolve", "instance"})
+CLOUD_ADDRESS_SOURCES = frozenset({"ec2", "ec2 nic", "aliyun", "aliyun nic", "instance"})
+SPARE_SOURCES = frozenset({"old-ip", "history", "resolve"}) | CLOUD_ADDRESS_SOURCES
+PROFILE_AUTO_SOURCES = frozenset({"old-ip", "history", "resolve"}) | CLOUD_ADDRESS_SOURCES
 
 
 @dataclass
@@ -90,9 +91,9 @@ class AddressEntry:
         return cls(family, ip, "history", timestamp=timestamp.strip())
 
     @classmethod
-    def from_instance_ip(cls, ip: str, instance_id: str = "") -> AddressEntry:
+    def from_instance_ip(cls, ip: str, instance_id: str = "", *, source: str = "ec2") -> AddressEntry:
         family = "IPv4" if is_ipv4(ip) else "IPv6"
-        return cls(family, ip, "instance", detail=instance_id.strip())
+        return cls(family, ip, source, detail=instance_id.strip())
 
     @classmethod
     def from_address_set(
@@ -125,9 +126,11 @@ class AddressEntry:
         source = source_part[:-1].strip()
         address = address.strip()
         detail = ""
-        if source.startswith("instance:"):
-            detail = source[len("instance:") :].strip()
-            source = "instance"
+        for prefix in ("ec2 nic:", "aliyun nic:", "ec2:", "aliyun:", "instance:"):
+            if source.startswith(prefix):
+                detail = source[len(prefix) :].strip()
+                source = prefix[:-1]
+                break
         if not address or not source:
             return None
         return cls(family, address, source, detail=detail)

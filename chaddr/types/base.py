@@ -64,6 +64,7 @@ class AddressTypeHandler(ABC):
         self.logger = logger
         self._progress: ProgressCallback | None = None
         self._source_addresses: AddressSet | None = None
+        self._target_addresses: AddressSet | None = None
         self._spare_from_addresses: SpareFromAddresses | None = None
         self._profile_spare_for_apply: SpareFromAddresses | None = None
         self._profile_name: str | None = None
@@ -75,6 +76,18 @@ class AddressTypeHandler(ABC):
 
     def set_source_addresses(self, source: AddressSet | None) -> None:
         self._source_addresses = source
+
+    def set_target_addresses(self, target: AddressSet | None) -> None:
+        """Address selected for use (Apply target); Diagnose compares against it when set."""
+        self._target_addresses = target
+
+    def _expected_addresses(self) -> AddressSet | None:
+        """Diagnose expectation: selected target if any, else from-source."""
+        if self._target_addresses and not self._target_addresses.is_empty():
+            return self._target_addresses
+        if self._source_addresses and not self._source_addresses.is_empty():
+            return self._source_addresses
+        return None
 
     def set_spare_from_addresses(self, spare: SpareFromAddresses | None) -> None:
         self._spare_from_addresses = spare

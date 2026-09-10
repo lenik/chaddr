@@ -47,13 +47,21 @@ def _build_handlers(
     logger: logging.Logger,
     spare_from: SpareFromAddresses | None = None,
 ):
+    from chaddr.profile import cloud_from_block_options
+
     options = merge_cli_options(profile, cli_options)
+    cloud_opts = cloud_from_block_options(profile)
     handlers = []
     for entry in profile.entries:
         handler_cls = get_handler_class(entry.type)
         if handler_cls is None:
             raise ValueError(f"unsupported type {entry.type!r} in profile {profile.name}")
-        handler = create_handler(entry.type, entry.config, options, proxy, logger)
+        config = dict(entry.config)
+        entry_type = canonical_ws_tokens(entry.type).lower()
+        if entry_type in ("aws elastic ip", "aliyun elastic ip") and cloud_opts:
+            # from: ec2/aliyun [nic|instance] identity merges into renew/diagnose handlers.
+            config = {**config, **cloud_opts}
+        handler = create_handler(entry.type, config, options, proxy, logger)
         handler.set_profile_context(profile.name, profile.path)
         if spare_from is not None:
             handler.set_spare_from_addresses(spare_from)
@@ -145,7 +153,7 @@ def _diagnose_instance_from_block(
                 "instance",
                 False,
                 f"unsupported from type: {from_type!r}",
-                "Use from: ec2 instance or from: aliyun instance.",
+                "Use from: ec2 nic, from: ec2, from: aliyun nic, or from: aliyun.",
             )
         )
         return DiagnoseResult(f"from: {from_type}", "issues found", False, items, addresses)
@@ -156,7 +164,23 @@ def _diagnose_instance_from_block(
         handler_diag = handler.diagnose()
         addresses.extend(handler_diag.addresses)
         for item in handler_diag.items:
-            if item.label in ("region", "aws api", "aliyun api", "instance", "instance lookup"):
+            if item.label in (
+                "region",
+                "aws api",
+                "aliyun api",
+                "instance",
+                "instance lookup",
+                "nic",
+                "nic lookup",
+                "ec2",
+                "ec2 nic",
+                "aliyun",
+                "aliyun nic",
+                "ec2 lookup",
+                "ec2 nic lookup",
+                "aliyun lookup",
+                "aliyun nic lookup",
+            ):
                 items.append(item)
         if not addresses:
             items.append(
@@ -214,21 +238,33 @@ def _merge_source_from_diags(diags: list[DiagnoseResult]) -> AddressSet:
 
 
 def _check_address_consistency(
-    source: AddressSet,
+    expected: AddressSet,
     results: list[DiagnoseResult],
     spare: SpareFromAddresses | None = None,
+    *,
+    strict: bool = False,
 ) -> tuple[bool, str]:
-    if source.is_empty():
+    if expected.is_empty():
         return True, "all checks passed"
 
-    allowed_v4 = {ip for ip in ([source.ipv4] if source.ipv4 else []) + (spare.ipv4 if spare else []) if ip}
-    allowed_v6 = {ip for ip in ([source.ipv6] if source.ipv6 else []) + (spare.ipv6 if spare else []) if ip}
+    if strict:
+        allowed_v4 = {expected.ipv4} if expected.ipv4 else set()
+        allowed_v6 = {expected.ipv6} if expected.ipv6 else set()
+        baseline = f"target ({expected.format()})"
+    else:
+        allowed_v4 = {
+            ip for ip in ([expected.ipv4] if expected.ipv4 else []) + (spare.ipv4 if spare else []) if ip
+        }
+        allowed_v6 = {
+            ip for ip in ([expected.ipv6] if expected.ipv6 else []) + (spare.ipv6 if spare else []) if ip
+        }
+        baseline = f"from/spare ({expected.format()})"
 
     mismatched: list[str] = []
     for result in results:
         if result.type_name.startswith("from:"):
             continue
-        if result.type_name in ("aws elastic ip", "aliyun elastic ip"):
+        if result.type_name in ("aws elastic ip", "aliyun elastic ip", "registered nameserver"):
             continue
         type_v4 = {ip for ip in result.addresses if is_ipv4(ip)}
         type_v6 = {ip for ip in result.addresses if is_ipv6(ip)}
@@ -238,7 +274,7 @@ def _check_address_consistency(
             mismatched.append(f"{result.type_name} IPv6: {', '.join(sorted(type_v6))}")
 
     if mismatched:
-        return False, f"address mismatch vs from/spare ({source.format()}): " + "; ".join(mismatched)
+        return False, f"address mismatch vs {baseline}: " + "; ".join(mismatched)
     return True, "all checks passed"
 
 
@@ -286,6 +322,7 @@ def diagnose_profile(
     progress: ProgressCallback | None = None,
     spare_from_sets: list[AddressSet] | None = None,
     on_result: DiagnoseResultCallback | None = None,
+    target_addresses: AddressSet | None = None,
 ) -> ProfileRunResult:
     log = logger or logging.getLogger("chaddr")
     accumulated = _accumulating_spare_sets(profile, spare_from_sets)
@@ -293,6 +330,9 @@ def diagnose_profile(
     handlers = _build_handlers(profile, cli_options or {}, proxy, log, profile_spare)
     results: list[DiagnoseResult] = []
     source = AddressSet()
+    target = target_addresses if target_addresses and not target_addresses.is_empty() else None
+    if target is not None:
+        log.info("Diagnose target (selected address to use): %s", target.format())
 
     from_diags = _diagnose_all_from_blocks(profile, cli_options, proxy, log)
     source = _merge_source_from_diags(from_diags)
@@ -312,6 +352,7 @@ def diagnose_profile(
             progress((offset + index) / total, f"Diagnosing {handler.type_name}")
         handler.set_progress_callback(progress)
         handler.set_source_addresses(source if not source.is_empty() else None)
+        handler.set_target_addresses(target)
         diag_result = handler.diagnose()
         results.append(diag_result)
         _extend_spare_from_addresses(accumulated, diag_result)
@@ -324,7 +365,13 @@ def diagnose_profile(
     ok = all(result.ok for result in results)
     message = "all checks passed" if ok else "issues found"
 
-    consistent, consistency_msg = _check_address_consistency(source, results, _spare_from_sets(accumulated))
+    expected = target if target is not None else source
+    consistent, consistency_msg = _check_address_consistency(
+        expected,
+        results,
+        None if target is not None else _spare_from_sets(accumulated),
+        strict=target is not None,
+    )
     if not consistent:
         ok = False
         message = consistency_msg
@@ -335,6 +382,7 @@ def diagnose_profile(
         message=message,
         diagnose_results=results,
         source_addresses=source if not source.is_empty() else None,
+        new_addresses=target,
     )
 
 
@@ -419,7 +467,7 @@ def apply_address_profile(
             return ProfileRunResult(
                 profile.name,
                 False,
-                "could not determine current addresses; add from: resolve or from: ec2/aliyun instance",
+                "could not determine current addresses; add from: resolve or from: ec2 nic/ec2",
                 diagnose_results,
             )
 

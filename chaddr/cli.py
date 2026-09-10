@@ -10,7 +10,7 @@ import sys
 if sys.platform.startswith("linux") and "GTK_A11Y" not in os.environ:
     os.environ["GTK_A11Y"] = "none"
 
-from chaddr.address import AddressSet, is_ipv4, parse_address_set
+from chaddr.address import AddressSet, is_ipv4, is_ipv6, parse_address_set
 from chaddr.config import load_config, resolve_client_ip
 from chaddr.gui.app import run_gui
 from chaddr.orchestrator import apply_address_profile, diagnose_profile, reallocate_profile
@@ -56,7 +56,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--proxy",
         help="Proxy URL, e.g. socks5://127.0.0.1:1080 or http://127.0.0.1:8080",
     )
-    parser.add_argument("--diagnose", action="store_true", help="Run diagnosis only (CLI mode)")
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Run diagnosis only (CLI mode); with --apply IP, that IP is the diagnose target",
+    )
     parser.add_argument(
         "-A",
         "--addresses",
@@ -119,13 +123,29 @@ def _run_cli(
             continue
         spare_extra = _spare_from_sets_for_profile(profile, old_ip)
         if diagnose:
+            target = None
+            try:
+                if apply_ip or apply_ipv4 or apply_ipv6:
+                    ipv4 = apply_ipv4 or (apply_ip if apply_ip and is_ipv4(apply_ip) else None)
+                    ipv6 = apply_ipv6 or (apply_ip if apply_ip and is_ipv6(apply_ip) else None)
+                    if ipv4 or ipv6:
+                        target = parse_address_set(ipv4, ipv6)
+            except ValueError as exc:
+                logger.error("%s", exc)
+                exit_code = 1
+                continue
             result = diagnose_profile(
                 profile,
                 cli_options,
                 proxy,
                 logger,
                 spare_from_sets=spare_extra,
+                target_addresses=target,
             )
+            if result.new_addresses and not result.new_addresses.is_empty():
+                print(f"Target: {result.new_addresses.format()}")
+            if result.source_addresses and not result.source_addresses.is_empty():
+                print(f"From-source: {result.source_addresses.format()}")
             logger.info("Profile %s: %s", name, result.message)
             for diag in result.diagnose_results:
                 status = "OK" if diag.ok else "FAIL"
@@ -135,6 +155,7 @@ def _run_cli(
                     print(f"  [{mark}] {item.label}: {item.detail}")
                     if not item.ok and item.guidance:
                         print(f"        -> {item.guidance}")
+            print(f"Result: {result.message}")
             if not result.ok:
                 exit_code = 1
         elif renew:
