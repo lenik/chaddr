@@ -12,7 +12,7 @@ except ImportError:  # pragma: no cover
     stc = None
 
 from chaddr import __version__
-from chaddr.config import load_config, resolve_client_ip
+from chaddr.config import load_config
 from chaddr.gui.editor import open_in_system_editor
 from chaddr.gui.highlighter import setup_styles
 from chaddr.gui.theme import apply_theme
@@ -41,7 +41,8 @@ class FileMenuMixin:
         self.cli_options.update(options)
         if proxy:
             self.apply_proxy(proxy)
-        resolve_client_ip(self.cli_options, self.proxy, self.config_path, self.logger)
+        else:
+            self._start_public_ip_fetch()
         self._update_status_bar()
         self.logger.info("Loaded config %s", path)
 

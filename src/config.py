@@ -156,8 +156,14 @@ def resolve_client_ip(
     proxy: str | None,
     config_path: Path | None,
     logger: logging.Logger | None = None,
+    *,
+    progress=None,
 ) -> tuple[str | None, str]:
-    """Use cached client IP when valid, otherwise fetch, update options, and persist."""
+    """Use cached client IP when valid, otherwise fetch, update options, and persist.
+
+    On fetch failure / no consensus, clears ``client_ip`` from *options* and returns
+    ``(None, "")`` after logging a warning.
+    """
     log = logger or logging.getLogger("chaddr")
 
     cached = cached_client_ip(options)
@@ -174,12 +180,16 @@ def resolve_client_ip(
         from chaddr.public_ip import fetch_public_ip
     except ImportError as exc:
         log.warning("Could not import public IP helper: %s", exc)
+        options.pop("client_ip", None)
+        options.pop("client_ip_expire", None)
         return None, ""
 
     try:
-        ip, source = fetch_public_ip(proxy)
+        ip, source = fetch_public_ip(proxy, progress=progress, logger=log)
     except Exception as exc:
         log.warning("Could not fetch public IP: %s", exc)
+        options.pop("client_ip", None)
+        options.pop("client_ip_expire", None)
         return None, ""
 
     options["client_ip"] = ip

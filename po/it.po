@@ -25,7 +25,7 @@ msgstr "Nome/i profilo sotto ~/.config/chaddr/profile/ (override con CHADDR_PROF
 
 #: src/cli.py:53
 msgid "FILE"
-msgstr "FILE"
+msgstr "File"
 
 #: src/cli.py:54
 msgid "JSON config file with API keys/secrets (default: ./chaddr.conf or ~/.config/chaddr/chaddr.conf)"

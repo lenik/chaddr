@@ -17,6 +17,15 @@ from chaddr.i18n import _, init_i18n
 from chaddr.orchestrator import apply_address_profile, diagnose_profile, reallocate_profile
 from chaddr.profile import Profile, ensure_profile_dir, list_profiles, list_profile_candidate_addresses, load_profile
 from chaddr.proxy import apply_proxy_env, log_proxy_hint, restore_proxy_env
+from chaddr.types import get_handler_class
+
+
+def _profile_requires_public_ip(profile: Profile) -> bool:
+    for entry in profile.entries:
+        handler_cls = get_handler_class(entry.type)
+        if handler_cls and getattr(handler_cls, "requires_public_ip", False):
+            return True
+    return False
 
 
 def _parse_option_flags(unknown: list[str]) -> dict:
@@ -147,6 +156,13 @@ def _run_cli(
     exit_code = 0
     for name in profiles:
         profile = load_profile(name)
+        if _profile_requires_public_ip(profile) and not (cli_options.get("client_ip") or "").strip():
+            logger.error(
+                "Profile %s requires a public IP (client_ip), but none could be determined",
+                name,
+            )
+            exit_code = 1
+            continue
         if addresses:
             for entry in list_profile_candidate_addresses(profile, cli_options, proxy, logger):
                 print(entry.display())
@@ -256,7 +272,6 @@ def main(argv: list[str] | None = None) -> int:
     proxy_backup = apply_proxy_env(proxy)
     logger.info(log_proxy_hint(proxy))
 
-    resolve_client_ip(cli_options, proxy, config_path, logger)
     ensure_profile_dir()
 
     try:
@@ -275,6 +290,8 @@ def main(argv: list[str] | None = None) -> int:
             cli_options["old_ip"] = args.old_ip
 
         if cli_mode:
+            # CLI needs client_ip up front; GUI resolves asynchronously with a progress bar.
+            resolve_client_ip(cli_options, proxy, config_path, logger)
             if not profiles:
                 available = list_profiles()
                 parser.error(f"profile required for CLI mode; available: {', '.join(available) or '(none)'}")

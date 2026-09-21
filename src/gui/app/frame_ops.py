@@ -162,28 +162,31 @@ class OperationsMixin:
         if token != self._address_fetch_token:
             return
         self.address_panel.set_entries(manual_entries)
-        self._show_progress()
-        self._progress.SetValue(0)
-        self._set_action("Loading addresses...")
+        if not self._public_ip_progress_active:
+            self._show_progress()
+            self._progress.SetValue(0)
+            self._set_action("Loading addresses...")
 
     def _on_address_fetch_step(self, token: int, event: ProfileAddressFetchEvent) -> None:
         if token != self._address_fetch_token:
             return
         self.address_panel.merge_entries(event.entries, replace_sources=event.replace_sources)
-        self._progress.SetValue(max(0, min(100, int(event.fraction * 100))))
-        self._set_action(event.message)
+        if not self._public_ip_progress_active:
+            self._progress.SetValue(max(0, min(100, int(event.fraction * 100))))
+            self._set_action(event.message)
         self._refresh_action_buttons()
 
     def _finish_address_fetch(self, token: int) -> None:
         if token != self._address_fetch_token:
             return
         if self._operation_cancel_event.is_set():
-            self._hide_progress()
+            if not self._public_ip_progress_active:
+                self._hide_progress()
             self._set_action("Cancelled")
             self._operation_cancel_event.clear()
             self._refresh_action_buttons()
             return
-        if not (self._worker and self._worker.is_alive()):
+        if not (self._worker and self._worker.is_alive()) and not self._public_ip_progress_active:
             self._progress.SetValue(100)
             self._hide_progress()
             self._set_action("Ready")
@@ -202,10 +205,46 @@ class OperationsMixin:
 
     def _update_progress(self, fraction: float, message: str) -> None:
         def _apply() -> None:
+            if self._public_ip_progress_active:
+                return
             self._progress.SetValue(int(fraction * 100))
             self._set_action(message)
 
         wx.CallAfter(_apply)
+
+    def _profiles_require_public_ip(self, profiles: list[str]) -> bool:
+        for name in profiles:
+            try:
+                profile = self._load_session_profile(name)
+            except Exception:
+                profile = load_profile(name)
+            for entry in profile.entries:
+                handler_cls = get_handler_class(entry.type)
+                if handler_cls and getattr(handler_cls, "requires_public_ip", False):
+                    return True
+        return False
+
+    def _ensure_public_ip_ready(self, profiles: list[str]) -> bool:
+        """Block ops that need a public IP when none is available yet / at all."""
+        if not self._profiles_require_public_ip(profiles):
+            return True
+        if self._remote_ip_value():
+            return True
+        if self._public_ip_loading:
+            wx.MessageBox(
+                "Still determining this host's public IP.\n"
+                "Wait for the status-bar progress to finish, then try again.",
+                "Public IP required",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return False
+        wx.MessageBox(
+            "No public IP is available for this host.\n"
+            "Namecheap and similar APIs require a public client IP.",
+            "Public IP required",
+            wx.OK | wx.ICON_WARNING,
+        )
+        return False
 
     def _run_async(self, label: str, func) -> None:
         if self._worker and self._worker.is_alive():
@@ -217,8 +256,13 @@ class OperationsMixin:
             wx.MessageBox("Select a profile.", "No profile", wx.OK | wx.ICON_INFORMATION)
             return
 
+        if not self._ensure_public_ip_ready(profiles):
+            return
+
         self._warning_count = 0
         self._error_count = 0
+        self._warning_messages.clear()
+        self._error_messages.clear()
         self._operation_cancel_event.clear()
         self._set_busy(True)
         wx.CallAfter(self._show_progress)
@@ -489,6 +533,10 @@ class OperationsMixin:
         if save_to_config and self.config_path:
             save_config(self.config_path, {"proxy": proxy or ""})
             self.logger.info("Saved proxy to %s", self.config_path)
+        # Proxy change can alter egress IP; drop cached client IP and rediscover.
+        self.cli_options.pop("client_ip", None)
+        self.cli_options.pop("client_ip_expire", None)
+        self._public_ip = None
         self._public_ip_loading = True
         self._update_status_bar()
         self._start_public_ip_fetch()

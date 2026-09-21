@@ -1,3 +1,18 @@
+chaddr (1.1.1) testing; urgency=medium
+
+  * Public IP: staggered parallel probes,  wall-clock caps, majority
+    vote; GUI progress bar.
+  * Meson pkgdatadir; profile seeds via buildconfig
+    PKGDATADIR/PROFILE_DIR.
+  * Status bar: click warn/error counts to show message lists.
+  * GUI: soften splitter/textctrl mins to avoid GTK negative-size
+    warnings when right pane is Unsplit.
+  * Respect ZL0090: drop generated buildconfig symlink in src/; bash
+    completion as completions/chaddr.in with @PKGDATADIR@.
+  * Man pages under man/; zfr lint clean (0 errors, 0 warnings).
+
+ -- Lenik (谢继雷) <lenik@bodz.net>  Mon, 21 Sep 2026 15:29:14 +0800
+
 chaddr (1.1.0) testing; urgency=medium
 
   * Move Python package sources to flat src/ (installed as chaddr); build/chaddr

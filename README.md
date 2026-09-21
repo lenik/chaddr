@@ -229,7 +229,8 @@ Useful options (see `meson configure build/`):
 | Option | Default |
 |--------|---------|
 | `--prefix` | `/usr/local` |
-| `-Dprofile_dir=` | `datadir/chaddr/profile` |
+| (computed) `pkgdatadir` | `datadir/chaddr` |
+| `-Dprofile_dir=` | `pkgdatadir/profile` |
 | `-Ddoc_dir=` | `datadir/doc/chaddr/examples` |
 | `-Dbashcompletiondir=` | `datadir/bash-completion/completions` |
 

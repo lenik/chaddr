@@ -57,8 +57,6 @@ meson install -C build --destdir=%{buildroot}
 
 %files
 %{_bindir}/chaddr
-%{_prefix}/lib/python3/dist-packages/chaddr/
-%{_datadir}/bash-completion/completions/chaddr
 %{_mandir}/man1/chaddr.1*
 %{_mandir}/man1/chaddr-profile.1*
 %{_datadir}/chaddr/

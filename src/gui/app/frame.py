@@ -73,8 +73,13 @@ class AddressEditFrame(
         self._resource_count = 0
         self._warning_count = 0
         self._error_count = 0
+        self._warning_messages: list[str] = []
+        self._error_messages: list[str] = []
         self._public_ip: str | None = None
         self._public_ip_loading = True
+        self._public_ip_progress_active = False
+        self._public_ip_fetch_token = 0
+        self._public_ip_total = 0
         self._main_split_sash_set = False
         self._profile_names: list[str] = []
         self._profile_labels: list[str] = []
@@ -93,11 +98,11 @@ class AddressEditFrame(
         self._build_ui()
         self._build_status_bar()
         self._setup_logging()
+        self._start_public_ip_fetch()
         self._load_profile_list(initial_profiles or [])
         wx.CallAfter(self._seed_old_ip)
         self._apply_theme()
         self._update_status_bar()
-        self._start_public_ip_fetch()
         self.Bind(wx.EVT_CLOSE, self._on_close)
 
     def _build_menu(self) -> None:
@@ -190,13 +195,13 @@ class AddressEditFrame(
         root = wx.BoxSizer(wx.VERTICAL)
 
         self._main_split = wx.SplitterWindow(panel, style=wx.SP_LIVE_UPDATE | wx.SP_3D)
-        self._main_split.SetMinimumPaneSize(280)
+        self._main_split.SetMinimumPaneSize(120)
         self._main_split.SetSashGravity(0.5)
 
         self._control_panel = wx.Panel(self._main_split)
         self._control_panel.SetFont(self._ui_font)
-        # Single address column; toolbar fits without squeezing GTK buttons.
-        self._control_panel.SetMinSize((520, -1))
+        # Soft min so GTK does not fight Unsplit/zero-size allocations.
+        self._control_panel.SetMinSize((280, 120))
 
         control = wx.BoxSizer(wx.VERTICAL)
 
@@ -275,7 +280,8 @@ class AddressEditFrame(
 
         self._right_panel = wx.Panel(self._main_split)
         self._right_panel.SetFont(self._ui_font)
-        self._right_panel.SetMinSize((360, -1))
+        # Keep tiny while Unsplit; raise when the right pane is shown.
+        self._right_panel.SetMinSize((1, 1))
 
         self._notebook = wx.Notebook(self._right_panel)
         log_page = wx.Panel(self._notebook)

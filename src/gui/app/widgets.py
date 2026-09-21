@@ -13,7 +13,7 @@ from chaddr.gui.highlighter import bind_output_text_shortcuts, _configure_log_st
 from chaddr.gui.theme import mono_font
 
 
-def _make_text_ctrl(parent: wx.Window, min_height: int = 200):
+def _make_text_ctrl(parent: wx.Window, min_height: int = 80):
     if stc is not None:
         ctrl = stc.StyledTextCtrl(parent, style=wx.BORDER_SUNKEN)
         ctrl.SetFont(mono_font(10))
@@ -22,7 +22,9 @@ def _make_text_ctrl(parent: wx.Window, min_height: int = 200):
         ctrl = wx.TextCtrl(parent, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL | wx.BORDER_SUNKEN)
         ctrl.SetFont(mono_font(10))
         bind_output_text_shortcuts(ctrl)
-    ctrl.SetMinSize((240, min_height))
+    # Soft minimum only — large mins cause GTK negative-size warnings when the
+    # right pane is Unsplit (allocation collapses to a few pixels).
+    ctrl.SetMinSize((80, max(40, min(min_height, 80))))
     return ctrl
 
 

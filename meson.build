@@ -35,14 +35,17 @@ datadir = get_option('datadir')
 sysconfdir = get_option('sysconfdir')
 bindir = get_option('bindir')
 
+# Package data root: $prefix/$datadir/chaddr (typically /usr/share/chaddr).
+pkgdatadir = datadir / meson.project_name()
+
 profile_dir = get_option('profile_dir')
 if profile_dir == ''
-    profile_dir = datadir / 'chaddr' / 'profile'
+    profile_dir = pkgdatadir / 'profile'
 endif
 
 doc_dir = get_option('doc_dir')
 if doc_dir == ''
-    doc_dir = datadir / 'doc' / 'chaddr' / 'examples'
+    doc_dir = datadir / 'doc' / meson.project_name() / 'examples'
 endif
 
 bashcompletiondir = get_option('bashcompletiondir')
@@ -63,10 +66,16 @@ else
 endif
 
 chaddr_conf = configuration_data()
+if pkgdatadir.startswith('/')
+  installed_pkgdatadir = pkgdatadir
+else
+  installed_pkgdatadir = prefix / pkgdatadir
+endif
 chaddr_conf.set('PACKAGE', meson.project_name())
 chaddr_conf.set('VERSION', meson.project_version())
 chaddr_conf.set('PREFIX', prefix)
 chaddr_conf.set('DATADIR', prefix / datadir)
+chaddr_conf.set('PKGDATADIR', installed_pkgdatadir)
 chaddr_conf.set('SYSCONFDIR', prefix / sysconfdir)
 chaddr_conf.set('PROFILE_DIR', installed_profile_dir)
 chaddr_conf.set('DOC_DIR', installed_doc_dir)
@@ -116,23 +125,10 @@ endif
 run_target(
     'posync',
     command: [
-        'bash',
-        '-euc', '''
-            cd "@SOURCE_ROOT@/po"
-            xgettext --from-code=UTF-8 --keyword=_ --language=Python --directory=.. --output=chaddr.pot --files-from=POTFILES
-            while IFS= read -r lang; do
-                [ -n "$lang" ] || continue
-                case "$lang" in
-                    '#'* ) continue ;;
-                esac
-                po_file="$lang.po"
-                if [ ! -f "$po_file" ]; then
-                    msginit --no-translator --input=chaddr.pot --locale="$lang" --output-file="$po_file"
-                fi
-                msgmerge --update --backup=none "$po_file" chaddr.pot
-                msgattrib --no-obsolete --output-file="$po_file" "$po_file"
-            done < LINGUAS
-        ''',
+        find_program('zfr'),
+        'translate',
+        '--sync',
+        '-C', meson.project_source_root(),
     ],
 )
 
@@ -164,8 +160,13 @@ install_data(
     install_dir: doc_dir,
 )
 
+chaddr_bash = configure_file(
+    input: 'completions/chaddr.in',
+    output: 'chaddr.bash',
+    configuration: chaddr_conf,
+)
 install_data(
-    'chaddr.bash',
+    chaddr_bash,
     rename: 'chaddr',
     install_dir: bashcompletiondir,
 )
@@ -183,6 +184,7 @@ summary(
         'prefix': prefix,
         'bindir': prefix / bindir,
         'python package': py_install_dir / 'chaddr',
+        'pkgdatadir': installed_pkgdatadir,
         'profile_dir': installed_profile_dir,
         'doc_dir': installed_doc_dir,
         'sysconfdir': prefix / sysconfdir,
@@ -195,13 +197,11 @@ summary(
 run_target(
     'look',
     command: [
-        'bash',
-        '-euc', '''
-            tmpdir=$(mktemp -d)
-            DESTDIR=$tmpdir meson install -C "@BUILD_ROOT@"
-            tree "$tmpdir"
-            rm -fr "$tmpdir"
-        ''',
+        find_program('zfr'),
+        'build',
+        '--look',
+        '-C', meson.project_source_root(),
+        '-b', meson.project_build_root(),
     ],
 )
 
@@ -214,7 +214,7 @@ install_data(
     [
         'LICENSE',
         'README.md',
-        'README-zh.md',
+        'README-zh_CN.md',
     ],
     install_dir: pkgdocdir,
 )
@@ -225,7 +225,7 @@ puffs = [
 ]
 man_i18n_langs = []
 foreach lang : ['ar', 'de', 'es_MX', 'fr', 'it', 'ja', 'ko', 'zh_CN']
-  if fs.is_dir('docs' / lang)
+  if fs.is_dir('man' / lang)
     man_i18n_langs += [lang]
   endif
 endforeach
@@ -234,7 +234,7 @@ man_i18n_built = []
 foreach puff : puffs
   custom_target(
     puff + '-man',
-    input: 'docs' / (puff + '.adoc'),
+    input: 'man' / (puff + '.adoc'),
     output: puff + '.1',
     command: [
       asciidoctor,
@@ -253,7 +253,7 @@ foreach puff : puffs
   foreach lang : man_i18n_langs
     man_i18n_built += custom_target(
       puff + '-' + lang + '-man',
-      input: 'docs' / lang / (puff + '.adoc'),
+      input: 'man' / lang / (puff + '.adoc'),
       output: puff + '--' + lang + '.1',
       command: [
         asciidoctor,

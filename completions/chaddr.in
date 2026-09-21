@@ -13,8 +13,8 @@ _chaddr_profile_dir() {
         printf '%s\n' "./profile"
         return
     fi
-    if [[ -d /usr/share/chaddr/profile ]]; then
-        printf '%s\n' "/usr/share/chaddr/profile"
+    if [[ -d @PKGDATADIR@/profile ]]; then
+        printf '%s\n' "@PKGDATADIR@/profile"
     fi
 }
 

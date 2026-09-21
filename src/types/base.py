@@ -50,6 +50,7 @@ class AddressTypeHandler(ABC):
     type_name: str = ""
     supports_manual_edit: bool = False
     supports_reallocate: bool = False
+    requires_public_ip: bool = False
 
     def __init__(
         self,

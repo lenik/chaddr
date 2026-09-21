@@ -17,25 +17,30 @@ class OutputPaneMixin:
     def _on_toggle_right_pane(self, evt) -> None:
         if evt.IsChecked():
             if not self._main_split.IsSplit():
+                self._right_panel.SetMinSize((200, 120))
                 self._main_split.SplitVertically(
                     self._control_panel,
                     self._right_panel,
                     sashPosition=self._initial_main_sash(),
                 )
                 self._main_split_sash_set = True
+                wx.CallAfter(self._center_main_splitter)
         elif self._main_split.IsSplit():
             self._main_split.Unsplit(self._right_panel)
+            self._right_panel.SetMinSize((1, 1))
 
     def _show_right_pane(self, *, tab: int | None = None) -> None:
         menu = self.GetMenuBar()
         if not self._main_split.IsSplit():
             menu.Check(ID_VIEW_RIGHT_PANE, True)
+            self._right_panel.SetMinSize((200, 120))
             self._main_split.SplitVertically(
                 self._control_panel,
                 self._right_panel,
                 sashPosition=self._initial_main_sash(),
             )
             self._main_split_sash_set = True
+            wx.CallAfter(self._center_main_splitter)
         if tab is not None:
             self._notebook.SetSelection(tab)
 
@@ -51,16 +56,21 @@ class OutputPaneMixin:
         self.logger.addHandler(handler)
 
     def _append_log(self, message: str, level: str = "info", profile_name: str | None = None) -> None:
+        text = message.rstrip("\n")
         if level == "warning":
             self._warning_count += 1
+            self._warning_messages.append(text)
         elif level in ("error", "critical"):
             self._error_count += 1
+            self._error_messages.append(text)
         active = profile_name or getattr(_profile_log_context, "name", None)
         if active and active in self._log_ctrls:
             targets = [self._log_ctrls[active]]
         elif self._log_ctrls:
             targets = list(self._log_ctrls.values())
         else:
+            # Still refresh status so warn/error counts are visible without a log tab.
+            self._update_status_bar()
             return
         for ctrl in targets:
             key = id(ctrl)
@@ -85,6 +95,8 @@ class OutputPaneMixin:
             clear_text(ctrl)
         self._warning_count = 0
         self._error_count = 0
+        self._warning_messages.clear()
+        self._error_messages.clear()
         self._update_status_bar()
 
     def _add_notebook_placeholder(self, notebook: wx.Notebook) -> wx.Panel:
@@ -120,7 +132,7 @@ class OutputPaneMixin:
         for child in list(placeholder.GetChildren()):
             child.Destroy()
         placeholder.SetSizer(None)
-        ctrl = _make_text_ctrl(placeholder, min_height=400)
+        ctrl = _make_text_ctrl(placeholder)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(ctrl, 1, wx.EXPAND | wx.ALL, 6)
         placeholder.SetSizer(sizer)
@@ -135,7 +147,7 @@ class OutputPaneMixin:
         page = wx.Panel(notebook)
         page.SetFont(self._ui_font)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        ctrl = _make_text_ctrl(page, min_height=400)
+        ctrl = _make_text_ctrl(page)
         sizer.Add(ctrl, 1, wx.EXPAND | wx.ALL, 6)
         page.SetSizer(sizer)
         return ctrl

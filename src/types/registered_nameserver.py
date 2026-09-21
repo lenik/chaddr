@@ -15,6 +15,7 @@ class RegisteredNameserverHandler(AddressTypeHandler):
     type_name = "registered nameserver"
     supports_manual_edit = True
     supports_reallocate = False
+    requires_public_ip = True
 
     def _ns_hosts(self) -> list[str]:
         raw = self.config.get("ns", "")
@@ -46,7 +47,7 @@ class RegisteredNameserverHandler(AddressTypeHandler):
         if not username:
             missing.append("namecheap_username")
         if not client_ip:
-            missing.append("client_ip")
+            missing.append("client_ip (public IP required)")
         if missing:
             raise RuntimeError(f"missing options: {', '.join(missing)}")
         return {

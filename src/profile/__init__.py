@@ -51,6 +51,7 @@ from chaddr.profile.parse import (
     update_profile_entry_option,
 )
 from chaddr.profile.paths import (
+    PKGDATADIR,
     PROFILE_DIR,
     USER_PROFILE_DIR,
     display_profile_path,
@@ -61,6 +62,7 @@ from chaddr.profile.paths import (
 )
 
 __all__ = [
+    "PKGDATADIR",
     "PROFILE_DIR",
     "USER_PROFILE_DIR",
     "STARTER_FROM",
