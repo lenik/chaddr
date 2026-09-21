@@ -1,3 +1,10 @@
+chaddr (1.1.2) testing; urgency=medium
+
+  * Fix GUI crash: do not SetToolTip on status bar when wxSTB_SHOW_TIPS
+    is set.
+
+ -- Lenik (谢继雷) <lenik@bodz.net>  Mon, 21 Sep 2026 16:09:18 +0800
+
 chaddr (1.1.1) testing; urgency=medium
 
   * Public IP: staggered parallel probes,  wall-clock caps, majority

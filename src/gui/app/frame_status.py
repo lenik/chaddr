@@ -14,7 +14,10 @@ from .widgets import _art_bitmap
 
 class StatusBarMixin:
     def _build_status_bar(self) -> None:
-        self._status_bar = self.CreateStatusBar(4)
+        # wxSTB_SHOW_TIPS forbids StatusBar.SetToolTip(); drop it so we can
+        # show the warn/error click hint on field 3.
+        style = wx.STB_DEFAULT_STYLE & ~wx.STB_SHOW_TIPS
+        self._status_bar = self.CreateStatusBar(4, style)
         self._status_bar.SetStatusWidths([-3, 140, 100, 120])
         self._progress = wx.Gauge(self._status_bar, range=100, size=(130, 16))
         self._progress.SetValue(0)
