@@ -57,6 +57,9 @@ meson install -C build --destdir=%{buildroot}
 
 %files
 %{_bindir}/chaddr
+# python3_sitelib is not defined on Debian rpmbuild; use a prefix glob.
+%{_prefix}/lib/python3*/site-packages/chaddr/
+%{_datadir}/bash-completion/completions/chaddr
 %{_mandir}/man1/chaddr.1*
 %{_mandir}/man1/chaddr-profile.1*
 %{_datadir}/chaddr/
@@ -65,6 +68,8 @@ meson install -C build --destdir=%{buildroot}
 %{_mandir}/*/man1/chaddr-profile.1*
 %{_datadir}/doc/chaddr/
 %changelog
+* Mon Sep 21 2026 Lenik (谢继雷) <lenik@bodz.net>
+- Package Python sitelib and bash-completion; release 1.1.1.
 * Thu Aug 20 2026 Lenik (谢继雷) <lenik@bodz.net>
 - Align spec with debian/control (Meson, AGPL-3.0-or-later).
 - Version comes from `zfr version`, the same method meson.build uses.
